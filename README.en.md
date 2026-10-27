@@ -137,7 +137,7 @@ npm install && npm run build
 dsh plugin --profile desktop add "$(pwd)"
 ```
 
-A linked install needs `npm run build` and a Harness restart after each source change. Add servers in the management panel, or create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). Configuration keys are listed in the Chinese README and in `src/config.ts`.
+A linked install needs `npm run build` and a Harness restart after each source change. Add servers in the management panel, or create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). Configuration keys are listed in [docs/config.md](./docs/config.md) (Chinese) and in `src/config.ts`.
 
 ## Limits
 

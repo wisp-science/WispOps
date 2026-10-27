@@ -45,6 +45,7 @@
   "files": [
     "lib",
     "skills",
+    "docs",
     "locale/*.json",
     "cordis.patch.yml",
     "examples",

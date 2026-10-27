@@ -1,0 +1,68 @@
+# 配置与 YAML 任务
+
+[← 返回 README](../README.md)
+
+## 配置
+
+在 profile 的 `cordis.patch.yml` 里覆盖 `wisp-ops` 这一行。patch 会整体替换 `config`，需要的键要写全：
+
+```yaml
+- id: wisp-ops
+  config:
+    inventoryFile: ~/.dsh-wisp-ops/inventory.yml
+    defaultPolicy: { change: ask, sudo: ask, destructive: ask }
+    secrets: { provider: local, importWisptermHosts: false }
+    grants: { defaultTtlMinutes: 30, maxTtlMinutes: 480, allowDestructive: false }
+    bashGuard: { tools: [bash], sudo: ask, inventorySsh: deny }
+    thresholds: { diskWarnPct: 80, diskCritPct: 90 }
+```
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `inventoryFile` | `~/.dsh-wisp-ops/inventory.yml` | 文件不存在时清单为空；修改后自动重载 |
+| `hosts` / `groups` | 空 | 也可以直接内联在配置里 |
+| `defaultPolicy` | 全部 `ask` | 没有主机/分组设置时使用 |
+| `denyPatterns` | 见源码 | 正则，任何情况下都拒绝 |
+| `extraReadPrograms` | `[]` | 额外视为只读的程序 |
+| `ssh.binary` | `ssh` | 系统 OpenSSH |
+| `ssh.controlPersistSec` | 60（Windows 为 0） | ControlMaster 复用连接；Win32-OpenSSH 不支持 |
+| `ssh.concurrency` | 8 | 机群并发数 |
+| `ssh.loadProfile` | true | 在子 shell 里加载 `/etc/profile`、`~/.profile` 取 PATH（输出丢弃，profile 里有 exit/exec 也不受影响） |
+| `ssh.extraPath` | `/usr/local/bin`、`/usr/sbin`、`/usr/local/cuda/bin`、`/opt/slurm/bin` 等 | 非登录 shell 里找不到 `nvidia-smi` / `sinfo` 时会用到 |
+| `ssh.authFailureBlockMinutes` | 15 | 认证失败后暂停登录的时长 |
+| `limits.*` | 60s / 30min / 64KiB / 64 台 | 默认与最大超时、单流输出上限、单次最多主机数 |
+| `secrets.provider` | `local` | 内置独立密码库；可选 `wispterm` 兼容旧引用或 `none` 禁用无前缀凭据 |
+| `thresholds.*` | 见源码 | 巡检阈值 |
+| `dataDir` | `~/.dsh-wisp-ops` | 审计日志、巡检历史、磁盘快照、探测结果、面板数据及独立密码库 |
+
+## 按服务器的定时任务
+
+不同的服务器可以配置不同的任务，写在清单的 `tasks:` 下（完整示例见 [examples/inventory.yml](../examples/inventory.yml)）：
+
+```yaml
+tasks:
+  - name: a-mcp-morning          # 服务器 A：每天早上汇报 MCP 调度情况
+    targets: server-a
+    playbook: custom
+    instruction: 观察 MCP 服务的调度情况（任务排队、失败、超时、资源占用），每天早上给我汇报
+    schedule: { daily: "08:30", timeZone: Asia/Shanghai }
+  - name: b-new-files            # 服务器 B：新增文件分析
+    targets: server-b
+    playbook: new-files
+    paths: [/data, /home]
+    days: 1
+    sudo: true
+    schedule: { daily: "09:00" }
+  - name: c-security             # 服务器 C：检查是否存在网络攻击（工作日）
+    targets: server-c
+    playbook: security
+    sudo: true
+    schedule: { daily: "08:00", weekdays: [1, 2, 3, 4, 5] }
+```
+
+- 预设 playbook：`inspect`（巡检）、`disk`（磁盘诊断）、`new-files`（新增文件分析）、`security`（攻击排查）、`custom`（按 `instruction` 用只读命令自行收集证据）。
+- 调度：`daily`（可加 `weekdays` 变成每周）、`cron`、`everyMinutes`，时区默认取本机时区。
+- 在 Web 会话里执行 `/ops-schedule all`，插件通过 DSH 官方调度服务创建提醒（DSH 的“自动化任务”页面里能看到）。到点后原会话被唤醒，agent 调用 `ops_task` 拿到数据、你的指令和上一次的结果，然后写汇报。DSH 需要保持运行。
+- `/ops-run <任务>` 立即执行一次，`/ops-tasks` 查看任务，`/ops-unschedule` 取消调度。
+- 每次运行都会保存，下一次汇报会说明“与上次相比的变化”。
+- 无人值守时没人能点审批：任务里写 `sudo: true`，表示你预先授权这个任务的**只读**采集器使用 sudo（主机策略写了 `sudo: deny` 时仍然拒绝）。定时任务只采集和汇报，不做任何变更。
