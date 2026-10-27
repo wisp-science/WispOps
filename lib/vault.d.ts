@@ -30,7 +30,7 @@ export declare class LocalVault implements SecretProvider {
         }[];
     }>;
     save(input: CredentialInput, revision: string, commitAssociations?: () => Promise<void>): Promise<void>;
-    remove(name: string, revision: string): Promise<void>;
+    remove(name: string, revision: string, commitAssociations?: () => Promise<void>): Promise<void>;
     /** Owner-only backup path; never expose its return value through RPC or model tools. */
     exportForSync(): Promise<{
         revision: string;

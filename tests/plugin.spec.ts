@@ -263,6 +263,19 @@ describe('dsh-wisp-ops plugin', () => {
     expect(ok.isError).toBe(false)
   })
 
+  it('submits template drafts for review without touching the library or any host', async () => {
+    const r = await harness.call('ops_template_draft', { id: 'nginx-health', title: 'Nginx 可用性', category: '应用服务', description: '检查 nginx', playbook: 'custom', instruction: '检查 {{service}} 是否运行。', parameters: [{ key: 'service', label: '服务', hint: '服务名', required: true }] })
+    expect(r.isError).toBe(false)
+    expect(text(r)).toContain('Drafts to review')
+    const drafts = JSON.parse(await readFile(join(harness.dataDir, 'template-drafts.json'), 'utf8'))
+    expect(drafts.entries[0].template).toMatchObject({ id: 'nginx-health', parameters: [{ key: 'service' }], definition: { playbook: 'custom', schedule: { daily: '08:30' } } })
+    await expect(readFile(join(harness.dataDir, 'task-templates.json'), 'utf8')).rejects.toThrow()
+    expect((await harness.call('ops_template_draft', { id: 'builtin.health', title: 't', category: 'c', description: '', playbook: 'inspect', instruction: 'x' })).isError).toBe(true)
+    expect((await harness.call('ops_template_draft', { id: 'bad', title: 't', category: 'c', description: '', playbook: 'custom', instruction: '检查 {{missing}}' })).isError).toBe(true)
+    expect(await touched(harness)).toEqual([])
+    expect(harness.approval).not.toHaveBeenCalled()
+  })
+
   it('lists the inventory with policy', async () => {
     const r = await harness.call('ops_hosts', {})
     expect(text(r)).toContain('gpu-01')

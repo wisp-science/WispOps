@@ -95,8 +95,8 @@ export class LocalVault implements SecretProvider {
       return { version: 1, entries: [...value.entries.filter(e => e.name !== input.name), entry] }
     }, commitAssociations ? async commit => { await commit(); await commitAssociations() } : undefined)
   }
-  async remove(name: string, revision: string): Promise<void> {
-    await this.state.change(revision, value => ({ ...value, entries: value.entries.filter(e => e.name !== name) }))
+  async remove(name: string, revision: string, commitAssociations?: () => Promise<void>): Promise<void> {
+    await this.state.change(revision, value => ({ ...value, entries: value.entries.filter(e => e.name !== name) }), commitAssociations ? async commit => { await commit(); await commitAssociations() } : undefined)
   }
   /** Owner-only backup path; never expose its return value through RPC or model tools. */
   async exportForSync(): Promise<{ revision: string; entries: PortableCredential[] }> {

@@ -1,0 +1,2 @@
+# Keep LF on every platform so Windows builds reproduce the tracked lib/ byte for byte.
+* text=auto eol=lf

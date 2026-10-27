@@ -20,6 +20,8 @@ import { changeScript, describeChange, MAX_PATHS_PER_KIND, parseChangeOutput, va
 import type { ChangeOutcome } from './change.ts'
 import type { RunResult } from './ssh.ts'
 import { renderTrends } from './trends.ts'
+import { PLAYBOOKS } from './config.ts'
+import { addTemplateDraft, builtinTemplates, templateStore } from './task-library.ts'
 
 /** Vouchers issued by the gate, keyed by execution token and consumed once. */
 export class VoucherBook {
@@ -381,6 +383,46 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
         ...session === undefined ? {} : { session },
       })
       return json({ text, record })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'ops_template_draft',
+    description: 'Submit a recurring-check template draft for the user to review in the WispOps panel (Task library → Drafts to review). It does not save to the task library, link servers, schedule or run anything: the user edits and saves it there. Templates never hold servers or sudo. Write instruction as the rules of a read-only check (what to look at, thresholds, how to judge and report); put values the user supplies when linking servers in {{key}} placeholders with matching parameters. Submitting again with the same id replaces the earlier draft.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'Letters, digits, dot, hyphen or underscore, e.g. nginx-health; must not exist in the task library.' },
+      title: { type: 'string', required: true },
+      category: { type: 'string', required: true, description: 'For example 基础运维, 安全, 应用服务, 数据管理, 计算集群.' },
+      description: { type: 'string', required: true, description: 'One line for the template card.' },
+      playbook: { type: 'string', enum: [...PLAYBOOKS], required: true, description: 'inspect = health data; disk = disk diagnosis (paths); new-files = recent files (paths, days); security = security triage (hours); custom = checks the instruction drives through read-only ops_exec.' },
+      instruction: { type: 'string', required: true },
+      paths: { type: 'array', items: { type: 'string' }, description: 'Absolute default paths; required for disk and new-files.' },
+      days: { type: 'integer', description: 'new-files look-back days.' },
+      hours: { type: 'integer', description: 'security look-back hours.' },
+      daily: { type: 'string', description: 'Suggested daily run time HH:mm; default 08:30.' },
+      timeZone: { type: 'string', description: `IANA time zone; default ${config.timeZone}.` },
+      parameters: {
+        type: 'array',
+        description: 'Values asked for when servers are linked, referenced as {{key}} in instruction.',
+        items: { type: 'object', additionalProperties: false, properties: { key: { type: 'string', required: true }, label: { type: 'string', required: true }, hint: { type: 'string', required: true }, required: { type: 'boolean', required: true }, defaultValue: { type: 'string' } } },
+      },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: (value as { text: string }).text }],
+    },
+    isConcurrencySafe: () => false,
+    async execute(args) {
+      const library = await templateStore(config.dataDir).read()
+      if ([...builtinTemplates(config), ...library.value.entries].some(t => t.id === args.id)) throw new Error(`template id "${args.id}" is already in the task library; choose another id`)
+      const draft = await addTemplateDraft(config.dataDir, {
+        id: args.id, title: args.title, category: args.category, description: args.description, parameters: args.parameters ?? [],
+        definition: {
+          playbook: args.playbook, instruction: args.instruction, schedule: { daily: args.daily ?? '08:30', timeZone: args.timeZone ?? config.timeZone },
+          ...args.paths === undefined ? {} : { paths: args.paths }, ...args.days === undefined ? {} : { days: args.days }, ...args.hours === undefined ? {} : { hours: args.hours },
+        },
+      })
+      return json({ text: `Draft "${draft.template.title}" (${draft.template.id}) is waiting for review. Nothing was added to the task library: ask the user to open WispOps → Task library → Drafts to review, check it and save it.`, draft })
     },
   }))
 

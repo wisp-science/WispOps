@@ -39,6 +39,7 @@ DeepSeek Harness 的多主机服务器运维插件：服务器管理、独立加
 | `ops_change` | 文件、新建文件和目录的备份、变更、验证和失败恢复；按组逐台滚动，首台失败即停 |
 | `ops_exec` | 批量命令：并发执行，执行前做风险分级 |
 | `ops_hosts` / `ops_history` | 能力探测；操作审计、巡检历史与磁盘/内存趋势 |
+| `ops_template_draft` | 提交检查模板草稿，由你在面板审核后保存；不能直接写任务库、关联服务器或启用调度 |
 
 另带 6 个技能：磁盘写满、生信存储清理、安全排查、定时汇报、安全变更、GPU/Slurm。详见 [docs/features.md](./docs/features.md)。
 

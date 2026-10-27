@@ -74,6 +74,55 @@ export function classifyExit(code: number | null, stderr: string, sudo: boolean,
   return 'failed'
 }
 
+/** Windows ANSI code pages by locale `language-script`, language, or script; anything else is Western (1252). */
+const ANSI_CODE_PAGES: Record<string, string> = {
+  'zh-Hans': 'gb18030', 'zh-Hant': 'big5', Jpan: 'shift_jis', Kore: 'euc-kr', Cyrl: 'windows-1251', Grek: 'windows-1253',
+  Hebr: 'windows-1255', Arab: 'windows-1256', Thai: 'windows-874', tr: 'windows-1254', vi: 'windows-1258',
+  cs: 'windows-1250', hr: 'windows-1250', hu: 'windows-1250', pl: 'windows-1250', ro: 'windows-1250', sk: 'windows-1250', sl: 'windows-1250',
+  et: 'windows-1257', lt: 'windows-1257', lv: 'windows-1257',
+}
+
+/**
+ * Windows OpenSSH reports system errors such as "No such host is known" in the
+ * ANSI code page (GBK on Chinese Windows), which has no runtime API in Node;
+ * guess it from the user locale. Undefined elsewhere: POSIX ssh speaks UTF-8.
+ */
+export function legacyDecoder(platform = process.platform, locale = Intl.DateTimeFormat().resolvedOptions().locale): TextDecoder | undefined {
+  if (platform !== 'win32') return undefined
+  try {
+    const { language, script = '' } = new Intl.Locale(locale).maximize()
+    return new TextDecoder(ANSI_CODE_PAGES[`${language}-${script}`] ?? ANSI_CODE_PAGES[language] ?? ANSI_CODE_PAGES[script] ?? 'windows-1252')
+  } catch {
+    // Node built without full ICU lacks the legacy decoders.
+    return undefined
+  }
+}
+
+function decodeBytes(bytes: Uint8Array, legacy: TextDecoder | undefined): string | undefined {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return legacy?.decode(bytes)
+  }
+}
+
+/**
+ * Decode ssh stderr line by line, so the remote's UTF-8 survives next to
+ * local messages in the legacy code page. OpenSSH also writes non-ASCII bytes
+ * of its own messages as `\NNN` octal escapes; those runs are decoded too.
+ */
+export function decodeStderr(bytes: Buffer, legacy: TextDecoder | undefined): string {
+  const lines: string[] = []
+  for (let start = 0; ;) {
+    const end = bytes.indexOf(0x0a, start)
+    const line = bytes.subarray(start, end === -1 ? bytes.length : end)
+    lines.push(decodeBytes(line, legacy) ?? line.toString('utf8'))
+    if (end === -1) break
+    start = end + 1
+  }
+  return lines.join('\n').replace(/(?:\\[23][0-7]{2})+/g, run => decodeBytes(Buffer.from(run.slice(1).split('\\').map(digits => parseInt(digits, 8))), legacy) ?? run)
+}
+
 /**
  * Remote command that validates sudo with a password read from stdin, then
  * runs the rest of stdin as root through the cached credential. The password
@@ -158,6 +207,7 @@ async function createAskpass(password: string): Promise<{ env: NodeJS.ProcessEnv
 
 export class SshRunner {
   private readonly controlDir: string | undefined
+  private readonly legacy = legacyDecoder()
   readonly guard: AuthGuard
 
   constructor(private readonly spec: SshSpec, private readonly maxOutputBytes: number, dataDir: string) {
@@ -245,7 +295,7 @@ export class SshRunner {
         clearTimeout(timer)
         if (killTimer !== undefined) clearTimeout(killTimer)
         request.signal?.removeEventListener('abort', onAbort)
-        const stderr = redact(spawnError === undefined ? err.text() : `failed to start ${this.spec.binary}: ${spawnError.message}`)
+        const stderr = redact(spawnError === undefined ? decodeStderr(err.bytes(), this.legacy) : `failed to start ${this.spec.binary}: ${spawnError.message}`)
         resolve({
           host: host.name,
           status: ended ?? (spawnError === undefined ? classifyExit(code, stderr, request.sudo, withPassword) : 'unreachable'),
@@ -312,7 +362,11 @@ class Capture {
     this.size += kept.length
   }
 
+  bytes(): Buffer {
+    return Buffer.concat(this.chunks)
+  }
+
   text(): string {
-    return Buffer.concat(this.chunks).toString('utf8')
+    return this.bytes().toString('utf8')
   }
 }

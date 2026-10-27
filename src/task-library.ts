@@ -1,4 +1,5 @@
 /** Reusable task definitions are independent from hosts and live schedules. */
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { Task } from './config.ts'
 import type { Config } from './config.ts'
@@ -53,6 +54,29 @@ export function validateTemplate(value: unknown): TaskTemplate {
   const template: TaskTemplate = { id: raw.id, title: raw.title.trim(), description: raw.description, category: raw.category.trim(), definition: { ...definition, instruction: parsed.instruction }, parameters }
   renderTemplate(template, {}, false)
   return template
+}
+
+export interface TemplateDraft { id: string; createdAt: string; template: TaskTemplate }
+const MAX_DRAFTS = 10
+
+/** Templates the model proposed. Only the owner moves one into the library, by saving it from the panel form. */
+export function templateDraftStore(dataDir: string) {
+  return new LocalState<{ version: 1; entries: TemplateDraft[] }>(join(dataDir, 'template-drafts.json'), () => ({ version: 1, entries: [] }), value => {
+    const raw = value as { version: number; entries: TemplateDraft[] }
+    if (raw?.version !== 1 || !Array.isArray(raw.entries)) throw new Error('Invalid template drafts')
+    return { version: 1, entries: raw.entries.map(d => {
+      if (typeof d?.id !== 'string' || typeof d.createdAt !== 'string') throw new Error('Invalid template draft')
+      return { id: d.id, createdAt: d.createdAt, template: validateTemplate(d.template) }
+    }) }
+  })
+}
+
+/** Queue a validated draft; a newer draft with the same template id replaces the older one, and only the latest few are kept. */
+export async function addTemplateDraft(dataDir: string, template: unknown): Promise<TemplateDraft> {
+  const store = templateDraftStore(dataDir)
+  const draft = { id: randomUUID(), createdAt: new Date().toISOString(), template: validateTemplate(template) }
+  await store.change((await store.read()).revision, state => ({ version: 1, entries: [...state.entries.filter(d => d.template.id !== draft.template.id), draft].slice(-MAX_DRAFTS) }))
+  return draft
 }
 
 export function templateStore(dataDir: string) {

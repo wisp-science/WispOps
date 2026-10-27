@@ -14,7 +14,7 @@ import type { Scheduler, ScheduledRecord } from '../src/management.ts'
 import { LocalVault, routeSecrets } from '../src/vault.ts'
 import { noSecrets } from '../src/secrets.ts'
 import { managedStore } from '../src/managed.ts'
-import { builtinTemplates } from '../src/task-library.ts'
+import { addTemplateDraft, builtinTemplates } from '../src/task-library.ts'
 
 let dir: string, vault: LocalVault, service: OpsService, manager: OpsManager, records: ScheduledRecord[], scheduler: Scheduler
 const key = vi.fn(async (_dir: string, _create: boolean) => new Uint8Array(32).fill(7))
@@ -248,6 +248,21 @@ describe('server and task management', () => {
     await manager.dispatch({ action: 'deleteCredential', name: 'login', revision: (await vault.list()).revision })
     expect((await vault.list()).entries).toEqual([])
   })
+  it('force-deletes a linked credential and returns each purpose to its default, keeping other links', async () => {
+    await saveLinked([{ host: 'a', login: true, sudo: true }, { host: 'b', login: false, sudo: true }])
+    await manager.dispatch({ action: 'saveCredential', credential: { ...credential, name: 'other' }, revision: (await vault.list()).revision })
+    await manager.dispatch({ action: 'bindCredentials', host: 'b', binding: { auth: 'password', loginSecret: 'local:other', sudoSecret: 'local:login' }, revision: await revision() })
+    // A stale server revision changes neither file.
+    await expect(manager.dispatch({ action: 'deleteCredential', name: 'login', force: true, revision: (await vault.list()).revision, managedRevision: 'stale' })).rejects.toThrow('刷新')
+    expect((await vault.list()).entries.map(e => e.name)).toContain('login')
+    const view = await snap()
+    expect(await manager.dispatch({ action: 'deleteCredential', name: 'login', force: true, revision: view.vault.revision, managedRevision: view.revision })).toMatchObject({ message: expect.stringContaining('2 台') })
+    expect((await vault.list()).entries.map(e => e.name)).toEqual(['other'])
+    for (const inventory of [service.inventory, await Inventory.load(service.config)]) {
+      expect(inventory.hosts.get('a')).toMatchObject({ auth: 'key', loginSecret: undefined, sudoSecret: undefined })
+      expect(inventory.hosts.get('b')).toMatchObject({ auth: 'password', loginSecret: 'local:other', sudoSecret: undefined, policy: { sudo: 'deny' } })
+    }
+  })
   it('overrides host permissions from the panel, exposes the inherited value, and clears back to it', async () => {
     expect(service.inventory.hosts.get('b')).toMatchObject({ policy: { change: 'ask', sudo: 'deny', destructive: 'ask' }, inheritedPolicy: { sudo: 'deny' } })
     await manager.dispatch({ action: 'setPolicy', host: 'b', policy: { sudo: 'allow', change: 'allow' }, revision: await revision() })
@@ -271,6 +286,37 @@ describe('server and task management', () => {
     expect(service.select('test')[0]?.policy.sudo).toBe('ask')
     await expect(manager.dispatch({ action: 'addHost', host: { name: 'evil', ssh: '-oProxyCommand=x' }, revision: await revision() })).rejects.toThrow()
     expect(service.inventory.hosts.has('evil')).toBe(false)
+  })
+  it('edits panel servers in place, keeps their name and unshown fields, and leaves YAML servers alone', async () => {
+    await manager.dispatch({ action: 'addHost', host: { name: 'gx', ssh: 'xzg', user: 'guotosky.vip', port: 15031, groups: ['guozi'], proxyJump: 'bastion' }, revision: await revision() })
+    expect((await snap()).hosts.map((h: any) => [h.name, h.editable])).toEqual([['a', false], ['b', false], ['gx', true]])
+    service.runner.guard.record('gx', 'gx: Permission denied (password).')
+    await manager.dispatch({ action: 'editHost', host: { name: 'gx', ssh: 'guotosky.vip', user: 'xzg', description: 'fixed', groups: [] }, revision: await revision() })
+    for (const inventory of [service.inventory, await Inventory.load(service.config)]) {
+      const host = inventory.hosts.get('gx')!
+      expect(host).toMatchObject({ ssh: 'guotosky.vip', user: 'xzg', description: 'fixed', groups: [], proxyJump: 'bastion' })
+      expect(host.port).toBeUndefined()
+    }
+    expect(service.runner.guard.check('gx')).toBeUndefined()
+    await expect(manager.dispatch({ action: 'editHost', host: { name: 'a', ssh: '192.0.2.9' }, revision: await revision() })).rejects.toThrow('配置文件')
+    await expect(manager.dispatch({ action: 'editHost', host: { name: 'gone', ssh: 'x' }, revision: await revision() })).rejects.toThrow('已被删除')
+    await expect(manager.dispatch({ action: 'editHost', host: { name: 'gx', ssh: '-oProxyCommand=x' }, revision: await revision() })).rejects.toThrow()
+    expect(service.inventory.hosts.get('a')?.ssh).toBe('192.0.2.1')
+  })
+  it('deletes panel servers with their bindings and policy, but not while a task names them', async () => {
+    await saveCredential()
+    await manager.dispatch({ action: 'addHost', host: { name: 'gx', ssh: '192.0.2.20' }, revision: await revision() })
+    await manager.dispatch({ action: 'bindCredentials', host: 'gx', binding: { auth: 'password', loginSecret: 'local:login' }, revision: await revision() })
+    await manager.dispatch({ action: 'setPolicy', host: 'gx', policy: { sudo: 'deny' }, revision: await revision() })
+    await saveTask({ targets: 'a,gx' })
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'gx', revision: await revision() })).rejects.toThrow('daily')
+    await manager.dispatch({ action: 'deleteTask', name: 'daily', revision: await revision() })
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'a', revision: await revision() })).rejects.toThrow('配置文件')
+    await manager.dispatch({ action: 'deleteHost', name: 'gx', revision: await revision() })
+    expect(service.inventory.hosts.has('gx')).toBe(false)
+    const managed = JSON.parse(await readFile(join(dir, 'managed.json'), 'utf8'))
+    expect([managed.hosts, managed.bindings, managed.policies]).toEqual([[], {}, {}])
+    expect((await vault.list()).entries.map(e => e.name)).toEqual(['login'])
   })
   it('binds tasks to exact hosts and preserves the existing YAML', async () => {
     await writeFile(service.config.inventoryFile!, '# human comments\nhosts: []\n')
@@ -391,6 +437,29 @@ describe('independent task library', () => {
     const view = await snap()
     return manager.dispatch({ action: 'saveTask', templateId: id, templateRevision: view.templates.revision, templateValues: values, revision: view.revision, task: { name: 'linked', targets: 'a', ...task } })
   }
+  it('queues AI drafts for review: chat requests go to an open session, drafts leave the queue when saved or discarded', async () => {
+    const agent = { followup: vi.fn() }
+    const chat = new OpsManager(service, vault, () => scheduler, undefined, id => id === 'live' ? agent : undefined)
+    await chat.dispatch({ action: 'draftTemplateInChat', sessionId: 'live', prompt: 'design a template' })
+    expect(agent.followup.mock.calls[0]![0]).toMatchObject({ source: { kind: 'user' } })
+    expect(JSON.stringify(agent.followup.mock.calls[0]![0])).toContain('design a template')
+    await expect(chat.dispatch({ action: 'draftTemplateInChat', sessionId: 'closed', prompt: 'x' })).rejects.toThrow('未打开')
+    await expect(chat.dispatch({ action: 'draftTemplateInChat', sessionId: 'live', prompt: '' })).rejects.toThrow('prompt')
+    // Drafts are validated like library templates: no sudo, no servers.
+    await expect(addTemplateDraft(dir, { ...template, definition: { ...template.definition, sudo: true } })).rejects.toThrow('sudo')
+    const first = await addTemplateDraft(dir, template)
+    const second = await addTemplateDraft(dir, { ...template, id: 'other' })
+    const replaced = await addTemplateDraft(dir, { ...template, title: '改进版' })
+    expect(await manager.dispatch({ action: 'templateDrafts' })).toEqual({ ids: [second.id, replaced.id] })
+    expect((await snap()).templates.drafts.map((d: any) => [d.template.id, d.template.title])).toEqual([['other', '日常巡检'], ['my-health', '改进版']])
+    expect((await snap()).templates.entries.some((t: any) => t.id === 'my-health')).toBe(false)
+    await manager.dispatch({ action: 'saveTemplate', template: replaced.template, edit: false, draftId: replaced.id, revision: (await snap()).templates.revision })
+    await manager.dispatch({ action: 'discardTemplateDraft', id: second.id })
+    const view = await snap()
+    expect(view.templates.drafts).toEqual([])
+    expect(view.templates.entries.find((t: any) => t.id === 'my-health')).toMatchObject({ title: '改进版', builtin: false })
+    expect(first.id).not.toBe(replaced.id)
+  })
   it('offers every built-in preset and saves custom templates with zero servers or schedules', async () => {
     const config = resolveConfig({ dataDir: dir, inventoryFile: join(dir, 'missing.yml'), hosts: [] })
     service = new OpsService(config, await Inventory.load(config), noSecrets)

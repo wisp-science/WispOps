@@ -38,6 +38,7 @@ export declare class OpsManager {
     private readonly agents?;
     private readonly state;
     private readonly library;
+    private readonly drafts;
     private pending;
     private readonly sync;
     constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined);
@@ -46,6 +47,7 @@ export declare class OpsManager {
     private scheduleRecords;
     private update;
     private handle;
+    private discardDraft;
     /** Credentials and sudo policy a scheduled or immediate run would need, checked before anything is queued. */
     private assertAutomationReady;
     /** Recent inspection history for every host: read-only, bounded, no command output. */

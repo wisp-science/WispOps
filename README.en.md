@@ -42,7 +42,7 @@ Configure templates and servers independently, then link them: **Task library â†
 
 Ten presets cover health, disk usage, new files, security, services, websites/TLS certificates, containers, backup freshness, log errors, and GPU/job queues. Services, websites, backups and logs ask for the specific check targets at association time. The last six use the Harness agent's read-only tools and remain subject to normal permissions; the first four use built-in collectors. Custom `ops_exec` calls do not inherit built-in collector sudo preauthorization.
 
-Copy built-in presets to customize them, or create a template from scratch. Custom templates live in `dataDir/task-templates.json`. Linked tasks store a copy of their rules: editing or deleting a template does not change existing tasks. Stop a task's schedule before editing its saved rules.
+Copy built-in presets to customize them, or create a template from scratch. **Generate in chat** in the new-template dialog sends what you have filled in to the current conversation; the agent agrees on the details with you and submits a draft through `ops_template_draft`, which appears under **Drafts to review** until you save or discard it from the prefilled form. The agent never writes the library itself. Custom templates live in `dataDir/task-templates.json`. Linked tasks store a copy of their rules: editing or deleting a template does not change existing tasks. Stop a task's schedule before editing its saved rules.
 
 Schedules use the native Harness automation service and require Harness to remain running. Editing a time in the native automation page currently does not update the plugin's task definition; stop, edit and re-enable through the plugin to keep them consistent.
 
@@ -79,6 +79,7 @@ Generation uses cached records by default. An optional read-only SSH probe refre
 | `ops_security` | Security triage: SSH brute force and logins, floods, listening services, miners, suspicious executables, mining/C2 outbound connections, persistence changes |
 | `ops_task` | Run a predefined per-server task (playbook `inspect`, `disk`, `new-files`, `security`, or `custom`) and get its data, the user's instruction, and the previous run |
 | `ops_history` | Monthly operation audit log, inspection history and disk/memory trends |
+| `ops_template_draft` | Submit a check-template draft for the user to review and save in the panel; it never writes the task library, links servers, schedules or runs anything |
 
 The model cannot invoke these human-only commands:
 

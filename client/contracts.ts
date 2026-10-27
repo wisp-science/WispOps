@@ -1,7 +1,9 @@
 export interface Credential { name: string; username: string; note: string; agent: boolean; hasSecret: boolean }
 export interface CredentialRef { ref: string; name: string; provider: string; status: string }
 export interface Host {
-  name: string; ssh?: string; user?: string; port?: number; description?: string; groups: string[];
+  name: string; ssh?: string; user?: string; port?: number; description?: string; groups: string[]; identityFile?: string;
+  /** Added in the panel; YAML and WispTerm hosts are edited where they are defined. */
+  editable: boolean;
   auth?: 'key' | 'password'; loginSecret?: string; sudoSecret?: string;
   credentials: { login: CredentialRef | null; sudo: CredentialRef | null }; tasks: string[];
   policy: Record<string, string>; inheritedPolicy: Record<string, string>; policyOverride?: Record<string, string>; probe: { os?: string; cores?: number; at: string } | null;
@@ -22,9 +24,11 @@ export interface TaskDraft {
 export interface Snapshot {
   notificationChannels?: string[];
   revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; tasks: Task[];
-  templates: { revision: string; entries: (import('../src/task-template-content').TaskTemplate & { builtin: boolean; uses: number })[] };
+  templates: { revision: string; entries: (import('../src/task-template-content').TaskTemplate & { builtin: boolean; uses: number })[]; drafts: TemplateDraft[] };
   timeZone: string; schedulerAvailable: boolean; warnings: string[];
 }
+/** A template the agent submitted with ops_template_draft, waiting for the owner to review and save. */
+export interface TemplateDraft { id: string; createdAt: string; template: import('../src/task-template-content').TaskTemplate }
 export type Api = (request: Record<string, unknown>) => Promise<any>
 export interface SessionList { ids: string[]; byId: Record<string, { displayTitle: string; parentId?: string; retainedBy?: { mainView?: number } }> }
 export interface PageProps { api: Api; sidebar?: boolean; defaultSessionId?: string; useSessions?: (selector: (state: SessionList) => SessionList) => SessionList }

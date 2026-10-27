@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { resolveConfig } from '../src/config.ts'
 import { Inventory } from '../src/inventory.ts'
 import type { Host } from '../src/inventory.ts'
-import { AuthGuard, classifyExit, passwordSudoCommand, prelude, SshRunner } from '../src/ssh.ts'
+import { AuthGuard, classifyExit, decodeStderr, legacyDecoder, passwordSudoCommand, prelude, SshRunner } from '../src/ssh.ts'
 
 const FIXTURES = resolve(import.meta.dirname, 'fixtures')
 let dir: string
@@ -80,6 +80,18 @@ describe('helpers', () => {
     expect(classifyExit(1, 'sudo: a password is required', true)).toBe('sudo-required')
     expect(classifyExit(97, '', true, true)).toBe('sudo-required')
     expect(classifyExit(1, 'boom', false)).toBe('failed')
+  })
+
+  it('decodes Windows ssh errors without mangling remote UTF-8', () => {
+    const gbk = legacyDecoder('win32', 'zh-CN')
+    // Windows OpenSSH: "No such host is known." in GBK, written as octal escapes.
+    const escaped = Buffer.from('ssh: Could not resolve hostname xzg: \\262\\273\\326\\252\\265\\300\\325\\342\\321\\371\\265\\304\\326\\367\\273\\372\\241\\243\r\n')
+    expect(decodeStderr(escaped, gbk)).toBe('ssh: Could not resolve hostname xzg: 不知道这样的主机。\r\n')
+    const mixed = Buffer.concat([Buffer.from('远端错误\n'), Buffer.from([0xb2, 0xbb, 0xd6, 0xaa, 0xb5, 0xc0])])
+    expect(decodeStderr(mixed, gbk)).toBe('远端错误\n不知道')
+    expect(decodeStderr(Buffer.from('名称解析暂时失败 \\345\\220\\215 \\377'), undefined)).toBe('名称解析暂时失败 名 \\377')
+    expect(legacyDecoder('linux', 'zh-CN')).toBeUndefined()
+    expect(['zh-TW', 'ja', 'ru', 'de'].map(locale => legacyDecoder('win32', locale)?.encoding)).toEqual(['big5', 'shift_jis', 'windows-1251', 'windows-1252'])
   })
 
   it('builds the sudo wrapper and prelude', () => {

@@ -48,6 +48,18 @@ export declare function shellQuote(value: string): string;
 /** Classify a finished ssh process. */
 export declare function classifyExit(code: number | null, stderr: string, sudo: boolean, withPassword?: boolean): RunStatus;
 /**
+ * Windows OpenSSH reports system errors such as "No such host is known" in the
+ * ANSI code page (GBK on Chinese Windows), which has no runtime API in Node;
+ * guess it from the user locale. Undefined elsewhere: POSIX ssh speaks UTF-8.
+ */
+export declare function legacyDecoder(platform?: NodeJS.Platform, locale?: string): TextDecoder | undefined;
+/**
+ * Decode ssh stderr line by line, so the remote's UTF-8 survives next to
+ * local messages in the legacy code page. OpenSSH also writes non-ASCII bytes
+ * of its own messages as `\NNN` octal escapes; those runs are decoded too.
+ */
+export declare function decodeStderr(bytes: Buffer, legacy: TextDecoder | undefined): string;
+/**
  * Remote command that validates sudo with a password read from stdin, then
  * runs the rest of stdin as root through the cached credential. The password
  * reaches only the `read` builtin and sudo's own stdin: if sudo needs no
@@ -80,6 +92,7 @@ export declare class SshRunner {
     private readonly spec;
     private readonly maxOutputBytes;
     private readonly controlDir;
+    private readonly legacy;
     readonly guard: AuthGuard;
     constructor(spec: SshSpec, maxOutputBytes: number, dataDir: string);
     /** The argv for one host; the destination always follows `--`, so it cannot be parsed as an option. */
