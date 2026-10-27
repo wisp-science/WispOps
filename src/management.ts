@@ -12,6 +12,8 @@ import { scheduleRequest, SCHEDULE_TITLE_PREFIX } from './tasks.ts'
 import type { CredentialInput, LocalVault } from './vault.ts'
 import { listVault, wisptermConfigDir } from './wispterm.ts'
 import { draftTask } from './task-draft.ts'
+import { builtinTemplates, templateStore, validateTemplate } from './task-library.ts'
+import { renderTemplate } from './task-template-content.ts'
 
 export interface ScheduledRecord { id: string; title: string; sessionId: string; scheduledAt: string; status: string }
 export interface Scheduler {
@@ -32,9 +34,11 @@ const titleOf = (name: string) => `${SCHEDULE_TITLE_PREFIX}${name}`.slice(0, 120
 
 export class OpsManager {
   private readonly state
+  private readonly library
   private pending: Promise<unknown> = Promise.resolve()
   constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined) {
     this.state = managedStore(service.config.dataDir)
+    this.library = templateStore(service.config.dataDir)
   }
   /** Serialize writes spanning credentials, bindings, and scheduler membership. */
   dispatch(value: unknown): Promise<unknown> {
@@ -59,6 +63,26 @@ export class OpsManager {
     await this.service.refresh()
     const action = string(request, 'action')
     if (action === 'snapshot') return this.snapshot()
+    if (action === 'saveTemplate') {
+      const template = validateTemplate(request.template)
+      await this.library.change(string(request, 'revision'), state => {
+        const exists = state.entries.some(t => t.id === template.id)
+        if (request.edit === true && !exists) throw new Error('模板已被删除，请刷新后重试。')
+        if (request.edit !== true && exists) throw new Error('模板标识已存在。')
+        state.entries = [...state.entries.filter(t => t.id !== template.id), template]
+        return state
+      })
+      return { message: '已保存到任务库。可稍后关联服务器，已有例行任务不会改变。' }
+    }
+    if (action === 'deleteTemplate') {
+      const name = string(request, 'name')
+      await this.library.change(string(request, 'revision'), state => {
+        if (!state.entries.some(t => t.id === name)) throw new Error('预设不可删除，或模板已不存在。')
+        state.entries = state.entries.filter(t => t.id !== name)
+        return state
+      })
+      return { message: '模板已删除，已关联的例行任务仍保留原有规则。' }
+    }
     if (action === 'draftTask') {
       if (!Array.isArray(request.hosts) || !request.hosts.length || request.hosts.some(name => typeof name !== 'string' || !this.service.inventory.hosts.has(name))) throw new Error('请选择有效的服务器。')
       const hosts = this.service.select([...new Set(request.hosts as string[])].join(','))
@@ -156,7 +180,21 @@ export class OpsManager {
       return { message: '服务器已添加，可在详情中关联密码库。' }
     }
     if (action === 'saveTask') {
-      const input = object(request.task)
+      let input = object(request.task)
+      if (request.templateId !== undefined) {
+        if (request.edit === true) throw new Error('已有任务请直接编辑，或重新创建模板关联。')
+        const library = await this.library.read()
+        if (library.revision !== string(request, 'templateRevision')) throw new Error('任务库已更新，请刷新后重新关联。')
+        const template = [...builtinTemplates(this.service.config), ...library.value.entries].find(t => t.id === string(request, 'templateId'))
+        if (!template) throw new Error('模板已不存在，请刷新任务库。')
+        const instruction = renderTemplate(template, object(request.templateValues ?? {}) as Record<string, string>)
+        if (input.instruction !== undefined && typeof input.instruction !== 'string') throw new Error('报告要求格式不正确。')
+        // Copy the trusted definition. Template changes never modify an existing task.
+        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
+          template: template.id, instruction: instruction + (input.instruction ? `\n补充要求：${input.instruction}` : '') }
+      } else if (request.edit !== true) {
+        delete input.template
+      }
       const task = Task(input as never)
       if (task.name.length > 100 || task.name === 'all') throw new Error('任务名称最多 100 个字符，不能使用 all。')
       if (request.edit !== true && this.service.inventory.tasks.has(task.name)) throw new Error('任务名称已存在。')
@@ -214,6 +252,7 @@ export class OpsManager {
   }
   private async snapshot() {
     const state = await this.state.read(), vault = await this.vault.list()
+    const library = await this.library.read()
     const warnings: string[] = []
     let scheduled: ScheduledRecord[] = []
     try { scheduled = await this.scheduleRecords() } catch { warnings.push('无法读取调度状态，请刷新后重试。') }
@@ -231,7 +270,8 @@ export class OpsManager {
     }
     const probes = await this.service.store.probes()
     const hosts = [...this.service.inventory.hosts.values()].map(h => ({ ...h, credentials: { login: reference(h.loginSecret), sudo: reference(h.sudoSecret) }, tasks: tasks.filter(t => t.hosts.includes(h.name)).map(t => t.name), probe: probes[h.name] ?? null }))
-    return { revision: state.revision, vault, hosts, tasks, timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, warnings }
+    const templates = { revision: library.revision, entries: [...builtinTemplates(this.service.config), ...library.value.entries].map(t => ({ ...t, builtin: t.id.startsWith('builtin.'), uses: tasks.filter(task => task.template === t.id).length })) }
+    return { revision: state.revision, vault, hosts, tasks, templates, timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, warnings }
   }
 }
 

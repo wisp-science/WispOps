@@ -286,3 +286,98 @@ describe('real DSH Gateway', () => {
     ctx.registry.delete(OpsManagement); ctx.registry.delete(TypertGatewayService); ctx.registry.delete(RemoteAccessService); ctx.registry.delete(TypertRegistry)
   })
 })
+
+describe('independent task library', () => {
+  const template = { id: 'my-health', title: '日常巡检', description: '观察资源', category: '自定义', parameters: [], definition: { playbook: 'inspect', instruction: '只读检查资源和异常。', schedule: { daily: '08:30', timeZone: 'UTC' } } }
+  const saveTemplate = async (value = template, edit = false) => manager.dispatch({ action: 'saveTemplate', template: value, edit, revision: (await snap()).templates.revision })
+  const associate = async (id: string, values = {}, task = {}) => {
+    const view = await snap()
+    return manager.dispatch({ action: 'saveTask', templateId: id, templateRevision: view.templates.revision, templateValues: values, revision: view.revision, task: { name: 'linked', targets: 'a', ...task } })
+  }
+  it('offers ten presets and saves custom templates with zero servers or schedules', async () => {
+    const config = resolveConfig({ dataDir: dir, inventoryFile: join(dir, 'missing.yml'), hosts: [] })
+    service = new OpsService(config, await Inventory.load(config), noSecrets)
+    manager = new OpsManager(service, vault, () => scheduler)
+    expect((await snap()).templates.entries).toHaveLength(10)
+    await saveTemplate()
+    const view = await snap()
+    expect(view.hosts).toEqual([])
+    expect(view.tasks).toEqual([])
+    expect(view.templates.entries.at(-1)).toMatchObject({ id: 'my-health', builtin: false, uses: 0 })
+    expect(scheduler.create).not.toHaveBeenCalled()
+    expect((await stat(join(dir, 'task-templates.json'))).mode & 0o777).toBe(0o600)
+    expect(await readdir(dir)).not.toContain('managed.json')
+  })
+  it('instantiates all presets with required values into valid, inactive tasks', async () => {
+    const entries = (await snap()).templates.entries
+    for (const t of entries) {
+      const values = Object.fromEntries(t.parameters.map((p: any) => [p.key, p.defaultValue || 'test-target']))
+      await associate(t.id, values, { name: t.id, targets: 'a,b', playbook: 'invalid' })
+      const task = service.inventory.tasks.get(t.id)!
+      expect(task.playbook).toBe(t.definition.playbook)
+      expect(task.targets).toBe('a,b')
+      expect(task.instruction).not.toContain('{{')
+      expect(task.instruction).toContain('只读')
+      expect(task.template).toBe(t.id)
+      expect(task.sudo).toBeFalsy()
+    }
+    expect((await snap()).templates.entries.every((t: any) => t.uses === 1)).toBe(true)
+    expect(records).toHaveLength(0)
+  })
+  it('requires actual targets and required parameters before saving an instance', async () => {
+    await expect(associate('builtin.services')).rejects.toThrow('服务名称')
+    await expect(associate('builtin.services', { services: '   ' })).rejects.toThrow('服务名称')
+    await expect(associate('builtin.services', { services: 12 })).rejects.toThrow('格式')
+    await expect(associate('builtin.services', { services: 'x'.repeat(4001) })).rejects.toThrow('格式')
+    await expect(associate('builtin.health', {}, { targets: 'missing' })).rejects.toThrow()
+    expect(service.inventory.tasks.size).toBe(0)
+  })
+  it('copies parameters, schedule, paths and explicit authorization without changing the template', async () => {
+    await associate('builtin.services', { services: 'nginx\npostgresql' }, { sudo: true, schedule: { everyMinutes: 30, timeZone: 'Asia/Shanghai' }, instruction: '只详细报告异常。' })
+    expect(service.inventory.tasks.get('linked')).toMatchObject({ template: 'builtin.services', sudo: true, schedule: { everyMinutes: 30, timeZone: 'Asia/Shanghai' } })
+    expect(service.inventory.tasks.get('linked')?.instruction).toContain('nginx\npostgresql')
+    expect(service.inventory.tasks.get('linked')?.instruction).toContain('补充要求：只详细报告异常。')
+    await associate('builtin.disk', {}, { name: 'disk-linked', paths: ['/data'] })
+    expect(service.inventory.tasks.get('disk-linked')?.paths).toEqual(['/data'])
+    expect((await snap()).templates.entries.find((t: any) => t.id === 'builtin.disk').definition.paths).toEqual(['/'])
+    expect(records).toHaveLength(0)
+  })
+  it('keeps linked rules and authorization unchanged after template edits or deletion', async () => {
+    await saveTemplate()
+    await associate(template.id, {}, { sudo: true })
+    const before = JSON.stringify(service.inventory.tasks.get('linked'))
+    await saveTemplate({ ...template, definition: { ...template.definition, instruction: '修改后的检查。' } }, true)
+    expect(JSON.stringify(service.inventory.tasks.get('linked'))).toBe(before)
+    await manager.dispatch({ action: 'deleteTemplate', name: template.id, revision: (await snap()).templates.revision })
+    expect(JSON.stringify(service.inventory.tasks.get('linked'))).toBe(before)
+    // Ordinary instance edits work even after its template has been deleted.
+    await manager.dispatch({ action: 'saveTask', edit: true, revision: await revision(), task: { ...service.inventory.tasks.get('linked'), description: 'edited instance' } })
+    expect(service.inventory.tasks.get('linked')).toMatchObject({ template: template.id, description: 'edited instance' })
+  })
+  it('rejects duplicate, stale, reserved and malformed templates without mutating the library', async () => {
+    const empty = (await snap()).templates.revision
+    await saveTemplate()
+    await expect(saveTemplate()).rejects.toThrow('已存在')
+    await expect(manager.dispatch({ action: 'saveTemplate', template, edit: true, revision: empty })).rejects.toThrow('刷新')
+    await expect(manager.dispatch({ action: 'saveTask', templateId: 'builtin.health', templateRevision: empty, revision: await revision(), task: { name: 'stale', targets: 'a' } })).rejects.toThrow('刷新')
+    for (const value of [
+      { ...template, id: 'builtin.health' },
+      { ...template, definition: { ...template.definition, targets: 'a' } },
+      { ...template, definition: { ...template.definition, sudo: true } },
+      { ...template, definition: { ...template.definition, instruction: '查 {{missing}}' } },
+      { ...template, definition: { ...template.definition, playbook: 'new-files', paths: [] } },
+      { ...template, definition: { ...template.definition, schedule: { daily: '08:30', everyMinutes: 20 } } },
+    ]) await expect(saveTemplate(value as any, true)).rejects.toThrow()
+    await expect(manager.dispatch({ action: 'deleteTemplate', name: 'builtin.health', revision: (await snap()).templates.revision })).rejects.toThrow('预设')
+    expect((await snap()).templates.entries).toHaveLength(11)
+  })
+  it('keeps scheduler activation and sudo policy enforcement on instantiated tasks', async () => {
+    await expect(associate('builtin.health', {}, { targets: 'b', sudo: true })).rejects.toThrow('禁止 sudo')
+    await associate('builtin.health')
+    expect(records).toHaveLength(0)
+    await manager.dispatch({ action: 'scheduleTask', name: 'linked', sessionId: 'session', enabled: true })
+    expect(records).toHaveLength(1)
+    expect(scheduler.create).toHaveBeenCalledWith('session', expect.objectContaining({ title: 'WispOps: linked', prompt: expect.stringContaining('ops_task') }))
+    await expect(manager.dispatch({ action: 'saveTask', edit: true, revision: await revision(), task: service.inventory.tasks.get('linked') })).rejects.toThrow('停用')
+  })
+})

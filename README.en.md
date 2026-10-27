@@ -4,7 +4,26 @@
 
 Multi-host server operations for DeepSeek Harness, with a Desktop/Web management panel, an independent encrypted credential vault, and recurring tasks linked to servers. It also covers fleet inspection, disk diagnosis, security triage, and commands over OpenSSH. Change, sudo, and destructive actions are authorized per host. WispTerm is optional; passwords are passed directly to SSH and never returned to the page or model.
 
-## Management panel (0.2)
+## Install from the Harness plugin page
+
+1. Open **Plugins → Add plugin** and paste `https://github.com/wisp-science/WispOps`.
+2. Choose the official npm registry or the mainland China mirror under **Installation source**, depending on your network. This selects the npm dependency registry; GitHub access is still required.
+3. Click **Install** and ensure the plugin is enabled. If pnpm asks to approve the package build script, follow its instructions and retry.
+4. Restart Harness. Open **服务器运维** from the left sidebar, or from a conversation's right-side Start page.
+
+Use the GitHub repository URL, not the npm registry URL, in the plugin field. This does not require a package published on npm or a WispTerm installation. Local source installations require `npm run build` before restarting.
+
+## Reusable task library (0.5)
+
+Configure templates and servers independently, then link them: **Task library → Associate servers → Save recurring task → Enable schedule**. A template may be reused with different hosts, parameters and schedules. Saving a template never connects to a server, enables a schedule or grants sudo access.
+
+Ten presets cover health, disk usage, new files, security, services, websites/TLS certificates, containers, backup freshness, log errors, and GPU/job queues. Services, websites, backups and logs ask for the specific check targets at association time. The last six use the Harness agent's read-only tools and remain subject to normal permissions; the first four use built-in collectors. Custom `ops_exec` calls do not inherit built-in collector sudo preauthorization.
+
+Copy built-in presets to customize them, or create a template from scratch. Custom templates live in `dataDir/task-templates.json`. Linked tasks store a copy of their rules: editing or deleting a template does not change existing tasks. Stop a task's schedule before editing its saved rules.
+
+Schedules use the native Harness automation service and require Harness to remain running. Editing a time in the native automation page currently does not update the plugin's task definition; stop, edit and re-enable through the plugin to keep them consistent.
+
+## Management panel
 
 After upgrading, rebuild and restart Harness. Open **服务器运维** (Server operations) from the right sidebar’s Start page to manage servers beside the conversation. The left sidebar and WispOps plugin details also open the full panel. Recurring tasks opened in the right sidebar default to the current conversation for reports.
 

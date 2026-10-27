@@ -97,3 +97,19 @@
 
 .wo-root .wo-clear-search{display:block;margin:12px auto 0;font-size:12px}
 .wo-task-rules summary:focus-visible{outline:2px solid #96b2ff;outline-offset:4px;border-radius:3px}
+
+/* Task library: reusable templates and explicit host association. */
+.wo-template-card{display:flex;flex-direction:column;align-self:stretch}
+.wo-template-card>p{font-size:12px;color:var(--wo-muted);flex:1;margin:8px 0 12px}
+.wo-template-card>.wo-task-actions{gap:8px;margin-top:12px;padding-top:12px}
+.wo-template-context{padding:12px 14px;background:var(--wo-tint);border-radius:8px;margin-bottom:16px;font-size:12px}
+.wo-template-context p{margin:4px 0;color:var(--wo-muted)}
+.wo-template-preview{margin-bottom:18px;font-size:12px}
+.wo-template-preview summary{cursor:pointer;color:var(--wo-accent)}
+.wo-template-preview p{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;background:var(--wo-panel);border-radius:6px}
+.wo-template-picker{display:grid;gap:8px;max-height:55vh;overflow:auto}
+.wo-dialog .wo-template-picker button{text-align:left;white-space:normal;padding:10px 12px}
+.wo-template-picker strong,.wo-template-picker small{display:block}
+.wo-template-picker small{margin-top:3px}
+@container(max-width:430px){.wo-tabs{gap:12px;overflow-x:auto;overflow-y:hidden}.wo-tabs button{font-size:12px;flex-shrink:0}.wo-tabs button span{display:none}}
+@container(min-width:500px){.wo-library-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

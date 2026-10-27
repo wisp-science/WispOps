@@ -70,6 +70,8 @@ export interface TaskSchedule {
 /** A recurring job for some servers, e.g. a morning report. */
 export interface TaskSpec {
   name: string
+  /** Origin template; execution uses the saved copy, never a live template. */
+  template?: string
   description?: string
   /** Host selector. */
   targets: string
@@ -242,6 +244,7 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 export const Task: z<TaskSpec> = z.object({
   name: z.string().pattern(NAME).required(),
+  template: z.string().pattern(NAME),
   description: z.string(),
   targets: z.string().required(),
   playbook: z.union(['inspect', 'disk', 'new-files', 'security', 'custom'] as const).required(),

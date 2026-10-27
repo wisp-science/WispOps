@@ -7,7 +7,7 @@ export interface Host {
   policy: Record<string, string>; probe: { os?: string; cores?: number; at: string } | null;
 }
 export interface Task {
-  name: string; targets: string; hosts: string[]; playbook: string; instruction?: string; description?: string;
+  name: string; template?: string; targets: string; hosts: string[]; playbook: string; instruction?: string; description?: string;
   paths?: string[]; days?: number; hours?: number; sudo?: boolean; editable: boolean;
   schedule?: { daily?: string; weekdays?: number[]; cron?: string; everyMinutes?: number; timeZone?: string };
   scheduled: { id: string; sessionId: string; scheduledAt: string }[];
@@ -20,6 +20,7 @@ export interface TaskDraft {
 }
 export interface Snapshot {
   revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; tasks: Task[];
+  templates: { revision: string; entries: (import('../src/task-template-content').TaskTemplate & { builtin: boolean; uses: number })[] };
   timeZone: string; schedulerAvailable: boolean; warnings: string[];
 }
 export type Api = (request: Record<string, unknown>) => Promise<any>
