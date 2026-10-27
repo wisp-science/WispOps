@@ -339,6 +339,18 @@
     "the.server.is.unreachable": "The server is unreachable.",
     "the.connection.timed.out": "The connection timed out.",
     "logins.are.paused.after.repeated.failures": "Logins to this server are paused after repeated failures. Try again later.",
-    "the.test.command.failed": "Connected, but the test command failed."
+    "the.test.command.failed": "Connected, but the test command failed.",
+    "edit.permissions": "Edit",
+    "set.in.panel": "panel",
+    "decided.by.host.group.then.default": "Decided per capability by host policy, then group, then the plugin default. Model-side deny lists still apply.",
+    "host.permissions": "{p0} · permissions",
+    "allow.runs.without.asking.ask": "allow runs without asking, ask requires your approval each time, deny refuses. Inherited values come from this host's YAML policy, its groups and the plugin default.",
+    "capability.change": "Edit files, configuration and services",
+    "capability.sudo": "Run commands with sudo",
+    "capability.destructive": "Delete data, restart or other destructive actions",
+    "inherit": "Inherit ({p0})",
+    "destructive.allow.warning": "Destructive actions on this server will run without approval. Keep ask unless you are sure.",
+    "overrides.apply.to.yaml.hosts.too": "Panel settings are stored in managed.json and override the same capability for a same-named server in YAML or WispTerm. They apply on the next call and travel with device sync.",
+    "save.permissions": "Save permissions"
   }
 }

@@ -6,7 +6,7 @@ import type { Playbook } from './config.ts'
 import type { HostSpec } from './config.ts'
 import { Inventory, expandHome } from './inventory.ts'
 import type { Host } from './inventory.ts'
-import { managedStore } from './managed.ts'
+import { managedStore, validatePolicy } from './managed.ts'
 import type { ManagedState, CredentialBinding } from './managed.ts'
 import type { OpsService } from './service.ts'
 import { scheduleRequest, SCHEDULE_TITLE_PREFIX } from './tasks.ts'
@@ -210,6 +210,18 @@ export class OpsManager {
       if (!result) throw new Error('测试未返回结果。')
       // stderr may carry ssh diagnostics but never the password; keep it short for the panel.
       return { status: result.status, user: result.status === 'ok' ? result.stdout.trim().split('\n')[0] ?? '' : '', error: result.status === 'ok' ? '' : result.stderr.trim().slice(0, 300) }
+    }
+    if (action === 'setPolicy') {
+      // Owner-only: the panel's override wins over the host's YAML, group and default policy for the listed capabilities.
+      const name = string(request, 'host')
+      if (!this.service.inventory.hosts.has(name)) throw new Error('服务器不存在。')
+      let policy
+      try { policy = validatePolicy(request.policy) } catch { throw new Error('操作权限取值不正确，请选择 allow、ask 或 deny。') }
+      await this.update(string(request, 'revision'), state => {
+        if (Object.keys(policy).length === 0) delete state.policies[name]
+        else Object.defineProperty(state.policies, name, { value: policy, enumerable: true, writable: true, configurable: true })
+      })
+      return { message: '操作权限已保存，下一次调用即生效。' }
     }
     if (action === 'addHost') {
       const input = object(request.host)

@@ -247,6 +247,24 @@ describe('server and task management', () => {
     await manager.dispatch({ action: 'deleteCredential', name: 'login', revision: (await vault.list()).revision })
     expect((await vault.list()).entries).toEqual([])
   })
+  it('overrides host permissions from the panel, exposes the inherited value, and clears back to it', async () => {
+    expect(service.inventory.hosts.get('b')).toMatchObject({ policy: { change: 'ask', sudo: 'deny', destructive: 'ask' }, inheritedPolicy: { sudo: 'deny' } })
+    await manager.dispatch({ action: 'setPolicy', host: 'b', policy: { sudo: 'allow', change: 'allow' }, revision: await revision() })
+    expect(service.inventory.hosts.get('b')).toMatchObject({ policy: { change: 'allow', sudo: 'allow', destructive: 'ask' }, inheritedPolicy: { change: 'ask', sudo: 'deny', destructive: 'ask' }, policyOverride: { sudo: 'allow', change: 'allow' } })
+    expect((await Inventory.load(service.config)).hosts.get('b')?.policy.sudo).toBe('allow')
+    expect((await snap()).hosts.find((h: any) => h.name === 'b')).toMatchObject({ policy: { sudo: 'allow' }, policyOverride: { sudo: 'allow' } })
+    expect(JSON.parse(await readFile(join(dir, 'managed.json'), 'utf8')).policies).toEqual({ b: { sudo: 'allow', change: 'allow' } })
+    // Unknown hosts, capabilities and values, and stale revisions are refused without writing.
+    for (const request of [{ host: 'zz', policy: {} }, { host: 'b', policy: { root: 'allow' } }, { host: 'b', policy: { sudo: 'yes' } }, { host: 'b', policy: ['allow'] }]) {
+      await expect(manager.dispatch({ action: 'setPolicy', revision: await revision(), ...request })).rejects.toThrow()
+    }
+    await expect(manager.dispatch({ action: 'setPolicy', host: 'b', policy: {}, revision: 'stale' })).rejects.toThrow()
+    expect(service.inventory.hosts.get('b')?.policy.sudo).toBe('allow')
+    await manager.dispatch({ action: 'setPolicy', host: 'b', policy: {}, revision: await revision() })
+    expect(service.inventory.hosts.get('b')).toMatchObject({ policy: { sudo: 'deny' } })
+    expect(service.inventory.hosts.get('b')?.policyOverride).toBeUndefined()
+    expect(JSON.parse(await readFile(join(dir, 'managed.json'), 'utf8')).policies).toEqual({})
+  })
   it('adds validated servers without broadening policy and refreshes live tools', async () => {
     await manager.dispatch({ action: 'addHost', host: { name: 'test', ssh: '192.0.2.10', policy: { sudo: 'allow' } }, revision: await revision() })
     expect(service.select('test')[0]?.policy.sudo).toBe('ask')

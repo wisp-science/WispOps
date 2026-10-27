@@ -46,7 +46,7 @@ DeepSeek Harness 的多主机服务器运维插件：服务器管理、独立加
 
 ## 权限
 
-每条命令分为 read / change / sudo / destructive，按 **主机策略 > 分组 > 默认** 裁决为 allow、ask 或 deny。默认只读直接执行，其余逐次审批；也可以用 `/ops-allow sudo @gpu 2h` 临时放行，`/ops-revoke all` 撤销。模型不能修改清单、数据目录和密码库。
+每条命令分为 read / change / sudo / destructive，按 **主机策略 > 分组 > 默认** 裁决为 allow、ask 或 deny。默认只读直接执行，其余逐次审批；也可以在服务器详情的“操作权限”里按服务器改成 allow / ask / deny，或用 `/ops-allow sudo @gpu 2h` 临时放行，`/ops-revoke all` 撤销。模型不能修改清单、数据目录和密码库。
 
 密码库使用 XChaCha20-Poly1305 加密，密钥存放在 macOS 钥匙串、Windows DPAPI 或权限为 `0600` 的文件中。详见 [docs/security.md](./docs/security.md)。
 

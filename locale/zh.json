@@ -339,6 +339,18 @@
     "the.server.is.unreachable": "无法连接到服务器。",
     "the.connection.timed.out": "连接超时。",
     "logins.are.paused.after.repeated.failures": "该服务器因多次登录失败已暂停登录，请稍后再试。",
-    "the.test.command.failed": "已连接，但测试命令执行失败。"
+    "the.test.command.failed": "已连接，但测试命令执行失败。",
+    "edit.permissions": "编辑",
+    "set.in.panel": "面板设置",
+    "decided.by.host.group.then.default": "每项按 主机策略 > 分组 > 插件默认 裁决；模型侧的 deny 规则仍然生效。",
+    "host.permissions": "{p0} · 操作权限",
+    "allow.runs.without.asking.ask": "allow 直接执行，ask 每次需要你审批，deny 禁止。继承值来自这台服务器的 YAML 策略、所属分组和插件默认值。",
+    "capability.change": "修改文件、配置和服务",
+    "capability.sudo": "使用 sudo 执行命令",
+    "capability.destructive": "删除数据、重启等破坏性操作",
+    "inherit": "继承（{p0}）",
+    "destructive.allow.warning": "这台服务器上的破坏性操作将不再审批。除非确定，否则请保留 ask。",
+    "overrides.apply.to.yaml.hosts.too": "面板设置保存在 managed.json，会覆盖 YAML 或 WispTerm 中同名服务器的同一项；下一次调用即生效，并随设备同步一起传输。",
+    "save.permissions": "保存权限"
   }
 }

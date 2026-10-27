@@ -4,7 +4,7 @@ export interface Host {
   name: string; ssh?: string; user?: string; port?: number; description?: string; groups: string[];
   auth?: 'key' | 'password'; loginSecret?: string; sudoSecret?: string;
   credentials: { login: CredentialRef | null; sudo: CredentialRef | null }; tasks: string[];
-  policy: Record<string, string>; probe: { os?: string; cores?: number; at: string } | null;
+  policy: Record<string, string>; inheritedPolicy: Record<string, string>; policyOverride?: Record<string, string>; probe: { os?: string; cores?: number; at: string } | null;
 }
 export interface Task {
   notify?: string[]; notifyOnlyProblems?: boolean;

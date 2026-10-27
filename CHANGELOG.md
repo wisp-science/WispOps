@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Edit a server's change / sudo / destructive permissions from the panel: each capability can be set to allow, ask or deny or left inherited; overrides are stored in `managed.json` through a new owner-only `setPolicy` action, apply to same-named YAML or WispTerm hosts, and are listed in sync previews.
+
 - Separate passwords from server bindings in the management panel: the vault form only stores a credential (with a show/hide password toggle and a note-only username hint), and each server's SSH login and sudo rows link, change or clear one vault credential on their own.
 - Add an owner-only `testBinding` action and "Test SSH login" / "Test sudo" buttons in the binding dialog that connect with the chosen credential and report the login identity, sudo availability or the failure reason without saving.
 

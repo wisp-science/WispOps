@@ -98,7 +98,7 @@ export class OpsSync {
         local: { hosts: local.value.hosts.length, credentials: localVault.entries.length, tasks: local.value.tasks.length },
         conflicts: s.credentials.filter(e => localVault.entries.some(old => old.name === e.name)).map(e => e.name),
         hostNames: s.managed.hosts.map(h => h.name), credentialNames: s.credentials.map(e => e.name),
-        policies: s.managed.hosts.filter(h => h.policy).map(h => ({ host: h.name, policy: h.policy })),
+        policies: [...s.managed.hosts.filter(h => h.policy).map(h => ({ host: h.name, policy: h.policy })), ...Object.entries(s.managed.policies).map(([host, policy]) => ({ host, policy }))],
         automatedCredentials: s.credentials.filter(e => e.agent).map(e => e.name),
         sudoTasks: s.managed.tasks.filter(t => t.sudo).map(t => ({ name: t.name, targets: t.targets })),
         bindings: Object.entries(s.managed.bindings).map(([host, binding]) => ({ host, ...binding })),

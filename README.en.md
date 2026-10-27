@@ -99,7 +99,7 @@ Task summaries can go to WeCom, DingTalk, Feishu or generic HTTPS webhooks, incl
 
 Capabilities and their defaults: `read` is always allowed; `change`, `sudo`, and `destructive` default to `ask`.
 
-Precedence is host policy, then the strictest of the host's groups, then `defaultPolicy`. A `deny` is absolute: neither approvals nor grants override it.
+Precedence is host policy (a per-capability override set in the panel's server details wins over the host's YAML policy), then the strictest of the host's groups, then `defaultPolicy`. A `deny` is absolute: neither approvals nor grants override it.
 
 Without a grant, an `ask` goes through the DSH approval UI for that one call. The prompt shows the hosts, the capabilities needed, the command, and the model's stated reason.
 

@@ -5,13 +5,17 @@
  * @module dsh-wisp-ops/inventory
  */
 import { Config } from './config.ts';
-import type { Capability, GroupSpec, HostSpec, Permission, TaskSpec } from './config.ts';
+import type { Capability, GroupSpec, HostSpec, Permission, PolicySpec, TaskSpec } from './config.ts';
 import type { ManagedState } from './managed.ts';
 /** A host with its effective policy resolved. */
 export interface Host extends HostSpec {
     readonly groups: string[];
     readonly tags: Record<string, string>;
     readonly policy: Record<Capability, Permission>;
+    /** Effective policy before the panel override, so the panel can show what "inherit" means. */
+    readonly inheritedPolicy: Record<Capability, Permission>;
+    /** Capabilities set in the panel; absent when nothing is overridden. */
+    readonly policyOverride?: PolicySpec;
 }
 /** The stricter of two permissions. */
 export declare function stricter(a: Permission, b: Permission): Permission;
@@ -27,7 +31,9 @@ export declare class Inventory {
     readonly hosts: ReadonlyMap<string, Host>;
     readonly groups: ReadonlyMap<string, GroupSpec>;
     readonly tasks: ReadonlyMap<string, TaskSpec>;
-    constructor(hosts: readonly HostSpec[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks?: readonly TaskSpec[]);
+    constructor(hosts: readonly (HostSpec & {
+        policyOverride?: PolicySpec;
+    })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks?: readonly TaskSpec[]);
     /**
      * Build from config: imported hosts (e.g. WispTerm profiles) first, then
      * inline entries, then the inventory file. A configured host replaces an
