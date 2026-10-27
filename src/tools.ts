@@ -16,7 +16,9 @@ import type { FleetInspection } from './service.ts'
 import type { OpsService } from './service.ts'
 import type { Voucher } from './gate.ts'
 import { renderInspection, renderRuns } from './render.ts'
-import { changeScript, describeChange, validateChange } from './change.ts'
+import { changeScript, describeChange, MAX_PATHS_PER_KIND, parseChangeOutput, validateChange } from './change.ts'
+import type { ChangeOutcome } from './change.ts'
+import type { RunResult } from './ssh.ts'
 import { renderTrends } from './trends.ts'
 
 /** Vouchers issued by the gate, keyed by execution token and consumed once. */
@@ -54,13 +56,16 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
 
   ctx.tools.register(defineTool({
     name: 'ops_change',
-    description: 'Change existing regular files on exactly one host with enforced backup, apply, verify and automatic restore on failure. List EVERY file the command can modify. Backups are retained in /var/tmp. afterRollback reloads restored configuration if needed. This does not roll back package installs, databases or other unlisted state. Requires GNU timeout. Start with one canary host. An interrupted connection has an unknown outcome: inspect before retrying.',
+    description: 'Managed change on one or more hosts with enforced backup, apply, verify and automatic restore on failure, rolled out host by host in inventory order and stopped at the first host that does not verify (the remaining hosts are skipped). List EVERY path the command can touch: files = existing regular files (copied), newFiles = paths that must not exist yet (deleted on failure), directories = existing directories (tar backup, replaced on failure). afterRollback reloads restored configuration if needed. Unlisted side effects (packages, databases) are not rolled back. Requires GNU timeout (and tar for directories). An interrupted connection has an unknown outcome: inspect before retrying. Backups stay on the host and are pruned after the configured retention; ops_history kind=changes lists them.',
     parameters: {
-      host: { type: 'string', required: true },
-      files: { type: 'array', items: { type: 'string' }, required: true, description: '1–30 absolute paths of existing regular files to back up.' },
+      targets: { type: 'string', description: 'Selector: host names, @group, globs, all. Hosts are changed one at a time; start with one canary host.' },
+      host: { type: 'string', description: 'Deprecated alias of targets.' },
+      files: { type: 'array', items: { type: 'string' }, description: `Up to ${MAX_PATHS_PER_KIND} absolute paths of existing regular files to back up.` },
+      newFiles: { type: 'array', items: { type: 'string' }, description: `Up to ${MAX_PATHS_PER_KIND} absolute paths the command creates; they must not exist yet and are removed on failure.` },
+      directories: { type: 'array', items: { type: 'string' }, description: `Up to ${MAX_PATHS_PER_KIND} absolute paths of existing directories to archive with tar; replaced from the archive on failure.` },
       command: { type: 'string', required: true, description: 'Apply the change; nonzero exit triggers rollback.' },
       verify: { type: 'string', required: true, description: 'Verification script; nonzero exit triggers rollback.' },
-      afterRollback: { type: 'string', description: 'Run after restoring files, e.g. reload the service and check health. Failure is reported.' },
+      afterRollback: { type: 'string', description: 'Run after restoring paths, e.g. reload the service and check health. Failure is reported.' },
       reason: { type: 'string', required: true },
       sudo: { type: 'boolean' },
       timeoutMs: { type: 'integer', description: 'Per-stage timeout, default 15000; a rollback budget is reserved within limits.maxTimeoutMs.' },
@@ -69,18 +74,43 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const plan = validateChange(args)
-      const hosts = service.select(plan.host)
-      if (hosts.length !== 1) throw new Error('ops_change takes exactly one host')
+      const hosts = service.select(plan.targets)
       const voucher = vouchers.take(exec, hosts.map(h => h.name))
-      const host = hosts[0]!
-      if (changing.has(host.name)) throw new Error('A managed change is already running on this host')
+      const busy = hosts.filter(h => changing.has(h.name)).map(h => h.name)
+      if (busy.length) throw new Error(`A managed change is already running on ${busy.join(', ')}`)
       if (config.limits.maxTimeoutMs < 20_000) throw new Error('ops_change requires maxTimeoutMs >= 20000 to reserve rollback time')
       const seconds = Math.max(1, Math.floor(Math.min(plan.timeoutMs ?? 15_000, (config.limits.maxTimeoutMs - 15_000) / 3) / 1000))
-      changing.add(host.name)
+      // Backups of directories run outside the staged timeouts; give them extra connection time.
+      const timeoutMs = Math.min(config.limits.maxTimeoutMs, seconds * 3000 + 15_000 + (plan.directories?.length ?? 0) * 60_000)
+      const script = changeScript(plan, seconds, { backupRoot: config.change.backupRoot, retentionDays: config.change.backupRetentionDays })
+      const sudo = args.sudo === true && voucher.sudo
+      const session = SESSION(exec)
+      for (const h of hosts) changing.add(h.name)
+      const rollout: { host: string; outcome: ChangeOutcome | 'skipped'; status?: string; backupDir?: string }[] = []
+      const results: RunResult[] = []
       try {
-        const results = await service.execute(hosts, changeScript(plan, seconds), { sudo: args.sudo === true && voucher.sudo, signal: exec.signal, timeoutMs: seconds * 3000 + 15_000, tool: 'ops_change', auditCommand: describeChange(plan), risk: voucher.risk.level, authorization: voucher.authorization, reason: plan.reason, session: SESSION(exec) })
-        return json({ text: `${describeChange(plan)}\n\n${renderRuns(results, 12000)}\nBackups are retained. If SSH timed out or disconnected, the final state is unknown; inspect before retrying.`, results })
-      } finally { changing.delete(host.name) }
+        for (const [index, host] of hosts.entries()) {
+          if (exec.signal?.aborted) { rollout.push(...hosts.slice(index).map(h => ({ host: h.name, outcome: 'skipped' as const }))); break }
+          const [result] = await service.execute([host], script, { sudo, signal: exec.signal, timeoutMs, tool: 'ops_change', auditCommand: describeChange(plan), risk: voucher.risk.level, authorization: voucher.authorization, reason: plan.reason, session })
+          if (result === undefined) break
+          results.push(result)
+          const parsed = parseChangeOutput(result.stdout, result.exitCode)
+          rollout.push({ host: host.name, outcome: parsed.outcome, status: result.status, ...parsed.backupDir === undefined ? {} : { backupDir: parsed.backupDir } })
+          await service.store.recordChange({ at: new Date().toISOString(), ...session === undefined ? {} : { session }, host: host.name, outcome: parsed.outcome, status: result.status, exitCode: result.exitCode, ...parsed.backupDir === undefined ? {} : { backupDir: parsed.backupDir }, files: plan.files, newFiles: plan.newFiles ?? [], directories: plan.directories ?? [], reason: plan.reason, sudo })
+          if (parsed.outcome !== 'verified') {
+            rollout.push(...hosts.slice(index + 1).map(h => ({ host: h.name, outcome: 'skipped' as const })))
+            break
+          }
+        }
+      } finally { for (const h of hosts) changing.delete(h.name) }
+      const skipped = rollout.filter(r => r.outcome === 'skipped').map(r => r.host)
+      const summary = rollout.map(r => `- ${r.host}: ${r.outcome}${r.status !== undefined && r.status !== 'ok' && r.outcome !== 'verified' ? ` (${r.status})` : ''}${r.backupDir === undefined ? '' : ` — backup ${r.backupDir}`}`).join('\n')
+      const note = [
+        skipped.length ? `Rollout stopped at the first host that did not verify; not attempted: ${skipped.join(', ')}.` : undefined,
+        config.change.backupRetentionDays > 0 ? `Backups are retained for ${config.change.backupRetentionDays} days and pruned at the start of the next ops_change on each host; ops_history kind=changes lists them.` : 'Backups are retained indefinitely (change.backupRetentionDays = 0); ops_history kind=changes lists them.',
+        'If SSH timed out or disconnected, the final state of that host is unknown; inspect before retrying.',
+      ].filter(Boolean).join(' ')
+      return json({ text: `${describeChange(plan)}\n\nRollout (${hosts.length} host(s), in order):\n${summary}\n\n${renderRuns(results, 12000)}\n${note}`, rollout, results })
     },
   }))
 
@@ -356,9 +386,9 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
 
   ctx.tools.register(defineTool({
     name: 'ops_history',
-    description: 'Read past operations (the audit log of every remote command, with risk, authorization and result) or past inspections (health findings and metrics over time) for some servers. Use it for "what changed", "when did this start", and failure history.',
+    description: 'Read past operations (the audit log of every remote command, with risk, authorization and result), past inspections (health findings and metrics over time), trends, or managed changes with their retained remote backups, for some servers. Use it for "what changed", "when did this start", failure history and "where is the backup".',
     parameters: {
-      kind: { type: 'string', enum: ['operations', 'inspections', 'trends'], required: true },
+      kind: { type: 'string', enum: ['operations', 'inspections', 'trends', 'changes'], required: true, description: 'operations = audit log; inspections = health history; trends = disk/memory series; changes = managed changes and their retained remote backups.' },
       targets: { type: 'string', description: 'Selector; default all.' },
       sinceHours: { type: 'number', description: 'Only entries newer than this; default 168 (7 days).' },
       limit: { type: 'integer', description: 'Maximum entries (per host for inspections); default 50.' },
@@ -378,6 +408,24 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
           ? 'No recorded operations in this window.'
           : rows.map(r => `${r.at} ${r.host} [${r.risk}${r.sudo ? '+sudo' : ''}, ${r.authorization}] ${r.status}${r.exitCode === null ? '' : `/${r.exitCode}`} ${r.tool}: ${r.command.split('\n')[0]?.slice(0, 160)}${r.reason === undefined ? '' : ` — ${r.reason.slice(0, 120)}`}`).join('\n')
         return json({ text, rows })
+      }
+      if (args.kind === 'changes') {
+        const retentionDays = config.change.backupRetentionDays
+        const changes: Record<string, unknown[]> = {}
+        const lines: string[] = []
+        for (const host of hosts) {
+          const rows = (await service.store.readChanges(host.name, limit)).filter(r => Date.parse(r.at) >= sinceMs)
+          if (rows.length === 0) continue
+          changes[host.name] = rows.map(r => ({ ...r, backupRetained: r.backupDir !== undefined && (retentionDays === 0 || Date.parse(r.at) + retentionDays * 86_400_000 > Date.now()) }))
+          lines.push(`## ${host.name}`)
+          for (const r of rows) {
+            const retained = r.backupDir === undefined ? 'no backup created' : retentionDays === 0 ? `backup ${r.backupDir} (kept indefinitely)` : Date.parse(r.at) + retentionDays * 86_400_000 > Date.now() ? `backup ${r.backupDir} (retained until ${new Date(Date.parse(r.at) + retentionDays * 86_400_000).toISOString()})` : `backup ${r.backupDir} (expired; pruned by the next ops_change on this host)`
+            const paths = [...r.files, ...r.newFiles.map(f => `${f} (new)`), ...r.directories.map(d => `${d}/`)]
+            lines.push(`${r.at} ${r.outcome}${r.sudo ? ' sudo' : ''} ${paths.join(', ')} — ${r.reason.slice(0, 120)}; ${retained}`)
+          }
+        }
+        const header = retentionDays > 0 ? `Backup retention: ${retentionDays} days under ${config.change.backupRoot} on each host.` : `Backup retention: unlimited under ${config.change.backupRoot} on each host.`
+        return json({ text: lines.length === 0 ? `No managed changes recorded in this window. ${header}` : `${header}\n${lines.join('\n')}`, changes })
       }
       const out: Record<string, unknown[]> = {}
       const lines: string[] = []

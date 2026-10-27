@@ -31,6 +31,23 @@ export interface AuditEntry {
   readonly durationMs: number
 }
 
+/** One host's outcome of a managed change, kept so retained backups can be listed later. */
+export interface ChangeRecord {
+  readonly at: string
+  readonly session?: string
+  readonly host: string
+  readonly outcome: 'verified' | 'rolled-back' | 'rollback-failed' | 'refused' | 'unknown'
+  readonly status: RunStatus
+  readonly exitCode: number | null
+  /** Remote backup directory, when the transaction got far enough to create one. */
+  readonly backupDir?: string
+  readonly files: readonly string[]
+  readonly newFiles: readonly string[]
+  readonly directories: readonly string[]
+  readonly reason: string
+  readonly sudo: boolean
+}
+
 export interface HistoryRecord extends InspectionMetrics {
   readonly status: RunStatus
   readonly findings: readonly Finding[]
@@ -176,6 +193,14 @@ export class OpsStore {
   }
 
   /** Append to a bounded per-key JSON Lines log under `sub/`. */
+  async recordChange(record: ChangeRecord): Promise<void> {
+    await this.appendBounded('changes', record.host, record, 200)
+  }
+
+  async readChanges(host: string, limit: number): Promise<ChangeRecord[]> {
+    return (await this.readBounded<ChangeRecord>('changes', host)).filter(row => row && typeof row.at === 'string' && typeof row.outcome === 'string').slice(-Math.max(0, limit))
+  }
+
   async appendBounded<T>(sub: string, key: string, row: T, keep = 200): Promise<void> {
     const file = join(await this.ensure(sub), `${key}.jsonl`)
     const rows = (await readJsonLines<T>(file)).slice(-(keep - 1))

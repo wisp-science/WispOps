@@ -31,6 +31,8 @@
 | `ssh.extraPath` | `/usr/local/bin`、`/usr/sbin`、`/usr/local/cuda/bin`、`/opt/slurm/bin` 等 | 非登录 shell 里找不到 `nvidia-smi` / `sinfo` 时会用到 |
 | `ssh.authFailureBlockMinutes` | 15 | 认证失败后暂停登录的时长 |
 | `limits.*` | 60s / 30min / 64KiB / 64 台 | 默认与最大超时、单流输出上限、单次最多主机数 |
+| `change.backupRoot` | `/var/tmp` | 每台主机上 `ops_change` 备份目录 `wispops-change.*` 的位置 |
+| `change.backupRetentionDays` | 14 | 备份保留天数，下一次 `ops_change` 开始时清理超期备份；0 为永久保留 |
 | `secrets.provider` | `local` | 内置独立密码库；可选 `wispterm` 兼容旧引用或 `none` 禁用无前缀凭据 |
 | `thresholds.*` | 见源码 | 巡检阈值 |
 | `dataDir` | `~/.dsh-wisp-ops` | 审计日志、巡检历史、磁盘快照、探测结果、面板数据及独立密码库 |

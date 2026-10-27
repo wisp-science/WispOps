@@ -121,6 +121,12 @@ export interface LimitsSpec {
     /** Largest fleet one call may address. */
     maxTargets: number;
 }
+export interface ChangeSpec {
+    /** Directory on each host where ops_change keeps `wispops-change.*` backups. */
+    backupRoot: string;
+    /** Backups older than this many days are pruned at the start of the next ops_change on that host; 0 keeps them. */
+    backupRetentionDays: number;
+}
 export interface GrantsSpec {
     defaultTtlMinutes: number;
     maxTtlMinutes: number;
@@ -177,6 +183,7 @@ export interface Config {
     ssh: SshSpec;
     secrets: SecretsSpec;
     limits: LimitsSpec;
+    change: ChangeSpec;
     grants: GrantsSpec;
     bashGuard: BashGuardSpec;
     thresholds: ThresholdsSpec;

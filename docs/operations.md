@@ -38,27 +38,41 @@ notifyOnlyProblems: true
 
 协议依据：[企业微信群机器人](https://developer.work.weixin.qq.com/document/path/91770)、[钉钉自定义机器人](https://open.dingtalk.com/document/robots/custom-robot-access)、[飞书自定义机器人](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)。
 
-## 安全文件变更
+## 安全变更
 
-`ops_change` 在一台主机上执行“备份 → 应用 → 验证 → 失败恢复”，适合已有配置文件的变更：
+`ops_change` 执行“备份 → 应用 → 验证 → 失败恢复”，每台主机是一个远端 shell 事务；给出选择器时按清单顺序逐台滚动，第一台未通过验证就停止，其余主机标记为 skipped：
 
 ```json
 {
-  "host": "web-01",
+  "targets": "@web",
   "files": ["/etc/nginx/nginx.conf"],
-  "command": "sed -i 's/worker_processes 1;/worker_processes auto;/' /etc/nginx/nginx.conf && nginx -t && systemctl reload nginx",
+  "newFiles": ["/etc/nginx/conf.d/ratelimit.conf"],
+  "directories": ["/etc/nginx/sites-enabled"],
+  "command": "sed -i 's/worker_processes 1;/worker_processes auto;/' /etc/nginx/nginx.conf && printf 'limit_req_zone ...;\n' > /etc/nginx/conf.d/ratelimit.conf && nginx -t && systemctl reload nginx",
   "verify": "nginx -t && systemctl is-active nginx",
   "afterRollback": "nginx -t && systemctl reload nginx && systemctl is-active nginx",
-  "reason": "按 CPU 数量调整 nginx worker，并验证服务",
+  "reason": "按 CPU 数量调整 nginx worker 并加入限流，逐台验证",
   "sudo": true
 }
 ```
 
-必须列出所有会修改的文件（1–30 个已有普通文件，拒绝符号链接）。全部备份成功后才开始变更。审批展示完整文件列表、应用、验证和恢复后检查；三个脚本分别参与风险分级及 deny-list 检查，继续使用现有 voucher、主机策略与授权。完整计划写入操作审计。
+必须列出命令会触及的全部路径，每类最多 30 个：
 
-远端需要 GNU `timeout`。每阶段默认 15 秒，在总期限内预留恢复时间。应用或验证非零退出后，远端同一事务恢复备份，再运行 `afterRollback`；省略时只恢复文件。备份保留在 `/var/tmp/wispops-change.*`，结果给出路径。结果区分 `verified`、`rolled-back` 和 `rollback-failed`。
+| 参数 | 前置条件 | 备份 | 失败时 |
+|---|---|---|---|
+| `files` | 已有普通文件，拒绝符号链接 | `cp -a` 到 `$B/f<i>` | 原子替换回原内容 |
+| `newFiles` | 尚不存在，父目录已存在 | 只记录在清单 | 删除（若变成目录则报告 rollback-failed） |
+| `directories` | 已有目录，拒绝符号链接 | `tar` 到 `$B/d<i>.tar` | 解压到同级临时目录后整体替换 |
 
-范围限于列出的文件；软件包、数据库、未列出的文件和其他外部副作用不会自动撤销。新建文件和目录变更继续用明确的 `ops_exec` 计划处理。SSH 中断、SIGKILL、主机断电或独立进程继续运行时不能保证恢复完成，应先检查实际状态再重试；不要与其他工具同时修改这些文件。
+全部备份成功后才开始变更；备份目录内含 `manifest` 列出每条路径及类型。审批展示完整主机列表、路径、应用、验证和恢复后检查；三个脚本分别参与风险分级及 deny-list 检查，继续使用现有 voucher、主机策略与授权。完整计划写入操作审计，每台主机的结果另记入 `dataDir/changes/<主机>.jsonl`。
+
+远端需要 GNU `timeout`，列出目录时还需要 `tar`。每阶段默认 15 秒，在总期限内预留恢复时间。应用或验证非零退出后，远端同一事务恢复备份，再运行 `afterRollback`；省略时只恢复路径。结果区分 `verified`、`rolled-back`、`rollback-failed`、`refused`（前置条件或备份失败，未做任何修改）和 `unknown`（连接中断）。
+
+**滚动与金丝雀**：多台主机时串行执行，同一主机同时只允许一个变更；建议先对一台主机运行，再对分组运行。停止后未执行的主机需要你决定是否修复后重试，工具不会自动继续。
+
+**备份保留**：备份保留在每台主机的 `change.backupRoot`（默认 `/var/tmp`）下的 `wispops-change.*`，结果和 `ops_history kind=changes` 给出路径。`change.backupRetentionDays`（默认 14，0 为永久保留）决定保留天数：每次 `ops_change` 开始时先用 `find -mtime` 删除该主机上超期的备份目录，再创建新备份；没有新的变更时不会清理，无权限删除的目录会跳过。`ops_history kind=changes` 列出每台主机记录的变更、路径、结果、备份目录以及是否仍在保留期内。
+
+范围限于列出的路径；软件包、数据库、未列出的文件和其他外部副作用不会自动撤销。SSH 中断、SIGKILL、主机断电或独立进程继续运行时不能保证恢复完成，应先检查实际状态再重试；不要与其他工具同时修改这些路径。
 
 ## 审计与趋势
 

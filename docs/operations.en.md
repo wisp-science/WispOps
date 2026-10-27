@@ -20,13 +20,17 @@ Delivery follows durable task recording. Messages contain a bounded collector su
 
 Provider references: [WeCom](https://developer.work.weixin.qq.com/document/path/91770), [DingTalk](https://open.dingtalk.com/document/robots/custom-robot-access), [Feishu](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot).
 
-## Managed file changes
+## Managed changes
 
-`ops_change` accepts one host, 1–30 existing regular files, `command`, `verify`, `reason`, optional `afterRollback`, `sudo` and a per-stage `timeoutMs`. Every modified file must be listed. It backs up all files before applying, verifies success, and restores files on apply or verification failure. `afterRollback` can reload the restored service and verify it. Without it, recovery restores files only.
+`ops_change` runs backup → apply → verify → restore on failure as one remote shell transaction per host. With a selector it rolls out host by host in inventory order and stops at the first host that does not verify; the remaining hosts are reported as skipped. Every path the command can touch must be listed, up to 30 per kind: `files` (existing regular files, copied with `cp -a`, restored atomically), `newFiles` (must not exist yet, deleted on failure) and `directories` (existing directories, archived with `tar`, replaced from the archive on failure). Symlinks are refused. `command`, `verify`, `reason` are required; `afterRollback`, `sudo` and a per-stage `timeoutMs` are optional.
 
-The approval contains the complete plan. Every script is risk-classified and checked against deployment denials; vouchers, host policies and grants still apply. The complete approved plan is audited. Backups stay in `/var/tmp/wispops-change.*` and the result reports their location. Outcomes distinguish verified, rolled-back and rollback-failed.
+The approval contains the complete plan with all hosts and paths. Every script is risk-classified and checked against deployment denials; vouchers, host policies and grants still apply. The approved plan is audited, and each host's outcome is recorded in `dataDir/changes/<host>.jsonl`. Outcomes are verified, rolled-back, rollback-failed, refused (a precondition or backup failed before anything changed) and unknown (connection lost).
 
-Targets need GNU `timeout`; the default is 15 seconds per stage, with recovery time reserved within the total limit. Symlinks are refused. This workflow does not reverse package installs, database writes, new files, directories or unlisted side effects. Connection loss, SIGKILL, power loss or detached processes can leave an unknown outcome: inspect before retrying, and avoid concurrent external edits.
+Targets need GNU `timeout`, and `tar` when directories are listed; the default is 15 seconds per stage, with recovery time reserved within the total limit. Only one managed change runs on a host at a time; start with one canary host before a group. A stopped rollout does not resume by itself.
+
+Backups stay under `change.backupRoot` (default `/var/tmp`) as `wispops-change.*` on each host, with a `manifest` of paths. `change.backupRetentionDays` (default 14; 0 keeps them forever) sets the retention: at the start of each `ops_change` the host's expired backup directories are pruned with `find -mtime` before the new backup is taken, so nothing is deleted while no change runs. `ops_history kind=changes` lists recorded changes per host with their paths, outcome, backup directory and whether it is still within retention.
+
+This workflow does not reverse package installs, database writes or unlisted side effects. Connection loss, SIGKILL, power loss or detached processes can leave an unknown outcome: inspect before retrying, and avoid concurrent external edits.
 
 ## Audit and trends
 

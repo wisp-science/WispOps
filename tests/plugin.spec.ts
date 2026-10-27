@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -98,6 +98,31 @@ describe('dsh-wisp-ops plugin', () => {
     expect(harness.approval).not.toHaveBeenCalled()
     const audit = await readFile(join(harness.dataDir, 'audit', `${new Date().toISOString().slice(0, 7)}.jsonl`), 'utf8')
     expect(JSON.parse(audit.trim())).toMatchObject({ host: 'web-01', risk: 'read', authorization: 'read-only', status: 'ok', exitCode: 0 })
+  })
+
+  it('rolls a managed change out host by host, stops at the first failure and lists retained backups', async () => {
+    const backups = join(harness.dataDir, 'backups')
+    await mkdir(backups)
+    harness = await mount({ change: { backupRoot: backups, backupRetentionDays: 7 } })
+    const file = join(harness.dataDir, 'managed.conf')
+    await writeFile(file, 'v1')
+    const r = await harness.call('ops_change', { targets: 'web-01,web-02,trusted', files: [file], command: `case "$FAKE_HOST" in web-02) exit 1;; esac; printf v2 > '${file}'`, verify: `test "$(cat '${file}')" = v2`, reason: 'rollout test' })
+    expect(r.isError).toBe(false)
+    expect(harness.approval).toHaveBeenCalledTimes(1)
+    expect((harness.approval.mock.calls[0]?.[0] as { reason: string }).reason).toContain('web-01, web-02, trusted')
+    expect(text(r)).toContain('- web-01: verified')
+    expect(text(r)).toContain('- web-02: rolled-back')
+    expect(text(r)).toContain('- trusted: skipped')
+    expect(text(r)).toContain('not attempted: trusted')
+    expect(await touched(harness)).toEqual(['web-01', 'web-02'])
+    // web-02 restored its own backup, which already held web-01's verified result.
+    expect(await readFile(file, 'utf8')).toBe('v2')
+    expect((await readdir(backups)).filter(n => n.startsWith('wispops-change.'))).toHaveLength(2)
+    const history = await harness.call('ops_history', { kind: 'changes', targets: 'all' })
+    expect(text(history)).toContain('Backup retention: 7 days')
+    expect(text(history)).toMatch(/## web-01\n\S+ verified .*managed\.conf .*retained until/)
+    expect(text(history)).toMatch(/## web-02\n\S+ rolled-back /)
+    expect(text(history)).not.toContain('## trusted')
   })
 
   it('folds identical fleet output', async () => {

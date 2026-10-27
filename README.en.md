@@ -73,7 +73,7 @@ Generation uses cached records by default. An optional read-only SSH probe refre
 | `ops_hosts` | Inventory, policy, grants, login blocks; `probe=true` detects OS, GPUs, scheduler, privilege, docker |
 | `ops_inspect` | Read-only fleet inspection: load, CPU, memory, disks, inodes, failed units, top processes, GPUs, Slurm, OOM and kernel errors, NTP, pending reboot. Thresholds produce findings, and growth is compared with the previous run |
 | `ops_disk` | Disk-full diagnosis: largest directories and their growth, large and recently grown files, open-file holders, files in active Slurm/PBS/LSF job directories, deleted-but-open space, common caches. A second run on the same path verifies a cleanup |
-| `ops_change` | Back up existing regular files on one host, apply, verify and restore on failure; the complete plan uses the permission gate |
+| `ops_change` | Back up listed files, new files and directories, apply, verify and restore on failure; rolls out host by host and stops at the first failure; backups are retained per host and listed by `ops_history kind=changes` |
 | `ops_exec` | Fleet command with risk classification (read / change / destructive, plus sudo); identical output is folded |
 | `ops_files` | Recent-file analysis with sequencing/bioinformatics knowledge. It covers raw data, alignments, variants, pipeline work directories, intermediates and caches. It also finds files superseded by a sibling and judges whether pipeline runs finished, then builds a cleanup plan that excludes open files and running jobs |
 | `ops_security` | Security triage: SSH brute force and logins, floods, listening services, miners, suspicious executables, mining/C2 outbound connections, persistence changes |
@@ -151,6 +151,6 @@ A linked install needs `npm run build` and a Harness restart after each source c
 - Target hosts are assumed to be GNU/Linux.
 - A timed-out remote command may still be running.
 - The management panel follows the Harness English/Chinese locale. Saved user content keeps its original language. YAML-owned tasks are edited in YAML. A scheduled task must be stopped before its definition can be edited in the panel.
-- `ops_change` restores listed existing files; unlisted side effects are outside its recovery scope. WebDAV sync replaces snapshots explicitly and does not merge in the background.
+- `ops_change` restores listed paths only; unlisted side effects are outside its recovery scope. WebDAV sync replaces snapshots explicitly and does not merge in the background.
 
 MIT licensed.

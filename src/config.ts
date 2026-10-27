@@ -138,6 +138,13 @@ export interface LimitsSpec {
   maxTargets: number
 }
 
+export interface ChangeSpec {
+  /** Directory on each host where ops_change keeps `wispops-change.*` backups. */
+  backupRoot: string
+  /** Backups older than this many days are pruned at the start of the next ops_change on that host; 0 keeps them. */
+  backupRetentionDays: number
+}
+
 export interface GrantsSpec {
   defaultTtlMinutes: number
   maxTtlMinutes: number
@@ -198,6 +205,7 @@ export interface Config {
   ssh: SshSpec
   secrets: SecretsSpec
   limits: LimitsSpec
+  change: ChangeSpec
   grants: GrantsSpec
   bashGuard: BashGuardSpec
   thresholds: ThresholdsSpec
@@ -328,6 +336,10 @@ export const Config: z<Config> = z.object({
     maxOutputBytes: z.natural().min(1024).default(64 * 1024),
     maxTargets: z.natural().min(1).default(64),
   }).default({ defaultTimeoutMs: 60_000, maxTimeoutMs: 30 * 60_000, maxOutputBytes: 64 * 1024, maxTargets: 64 }),
+  change: z.object({
+    backupRoot: z.string().pattern(/^\/[^\0\r\n]*[^\/\0\r\n]$/).default('/var/tmp'),
+    backupRetentionDays: z.natural().default(14),
+  }).default({ backupRoot: '/var/tmp', backupRetentionDays: 14 }),
   grants: z.object({
     defaultTtlMinutes: z.natural().min(1).default(30),
     maxTtlMinutes: z.natural().min(1).default(8 * 60),

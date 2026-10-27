@@ -25,6 +25,22 @@ export interface AuditEntry {
     readonly exitCode: number | null;
     readonly durationMs: number;
 }
+/** One host's outcome of a managed change, kept so retained backups can be listed later. */
+export interface ChangeRecord {
+    readonly at: string;
+    readonly session?: string;
+    readonly host: string;
+    readonly outcome: 'verified' | 'rolled-back' | 'rollback-failed' | 'refused' | 'unknown';
+    readonly status: RunStatus;
+    readonly exitCode: number | null;
+    /** Remote backup directory, when the transaction got far enough to create one. */
+    readonly backupDir?: string;
+    readonly files: readonly string[];
+    readonly newFiles: readonly string[];
+    readonly directories: readonly string[];
+    readonly reason: string;
+    readonly sudo: boolean;
+}
 export interface HistoryRecord extends InspectionMetrics {
     readonly status: RunStatus;
     readonly findings: readonly Finding[];
@@ -50,6 +66,8 @@ export declare class OpsStore {
     probes(): Promise<Record<string, HostProbe>>;
     saveProbes(update: Record<string, HostProbe>): Promise<void>;
     /** Append to a bounded per-key JSON Lines log under `sub/`. */
+    recordChange(record: ChangeRecord): Promise<void>;
+    readChanges(host: string, limit: number): Promise<ChangeRecord[]>;
     appendBounded<T>(sub: string, key: string, row: T, keep?: number): Promise<void>;
     readBounded<T>(sub: string, key: string): Promise<T[]>;
 }

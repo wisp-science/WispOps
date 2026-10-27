@@ -12,7 +12,7 @@
 - **网络攻击排查 `ops_security`**：SSH 暴力破解来源、成功登录（同时标记暴力破解后又登录成功的地址）、连接洪泛与 SYN flood、监听端口、疑似挖矿进程、运行已删除程序或从 `/tmp`、`/dev/shm` 启动的进程、连向常见矿池/C2 端口的外连、多余的 UID 0 账户、近期改动的 authorized_keys/cron/systemd 单元、sshd 弱配置、fail2ban 状态。
 - **能力探测 `ops_hosts probe=true`**：系统、架构、核数、GPU 数、调度器（slurm/pbs/sge/lsf）、权限（root / 免密 sudo / 需密码 sudo / 无）、docker 可用性。
 - **历史 `ops_history`**：按月操作审计、巡检历史；`kind=trends` 输出磁盘和可用内存的文本趋势。
-- **安全变更 `ops_change`**：单主机已有文件的强制备份、变更、验证和失败恢复。
+- **安全变更 `ops_change`**：已有文件、新建文件和目录的强制备份、变更、验证和失败恢复；按组逐台滚动，首台失败即停；备份按天保留，`ops_history kind=changes` 列出。
 - **通知、设备同步和更新**：外部 webhook 摘要通知、坚果云 WebDAV 加密快照、中英文面板，以及稳定 Release 检查与可选自动安装，见[操作指南](./operations.md)。
 
 ## 默认技能

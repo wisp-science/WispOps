@@ -55,7 +55,7 @@ export function planAction(tool: string, args: unknown, extraRead: ReadonlySet<s
   switch (tool) {
     case 'ops_change': {
       const plan = validateChange(args)
-      return { selector: plan.host, command: describeChange(plan), risk: changeRisk(plan, extraRead), sudo }
+      return { selector: plan.targets, command: describeChange(plan), risk: changeRisk(plan, extraRead), sudo }
     }
     case 'ops_exec': {
       const command = str(a.command) ?? ''

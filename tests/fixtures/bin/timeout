@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stand-in for GNU timeout in tests: drop options and the duration, run the command.
+while [ $# -gt 0 ]; do case "$1" in -*) shift;; *) shift; break;; esac; done
+exec "$@"
