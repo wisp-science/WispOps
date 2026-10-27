@@ -299,6 +299,7 @@
     "updates.available": "有可用更新",
     "updates.restart-required": "已安装，请重启 Harness 生效",
     "updates.failed": "检查或安装失败",
+    "updates.reinstall": "若因 HMR 无法更新，也可在 Harness「插件」页卸载 WispOps，再点击「＋ 添加插件」，输入以下地址重新安装，完成后重启 Harness：",
     "updates.up-to-date": "已是最新版本",
     "updates.working": "处理中…",
     "updates.release": "版本说明",

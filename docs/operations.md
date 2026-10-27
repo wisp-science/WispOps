@@ -107,4 +107,6 @@ Slurm、PBS 和 LSF 作业目录共同参与 `ops_disk` 与 `ops_files` 的在�
 
 仅支持官方 GitHub 来源的安装；本地 `link:`、开发仓库及其他来源不会被覆盖。开启 HMR 的 Harness 不支持这里对 Git 插件进行原位更新，请关闭 HMR 后重启再更新；缺少插件管理器时可检查版本，但需在插件页手动重装。宿主接口依据见 [Harness plugin-manager](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/boot/plugin-manager)。
 
+如果页面显示 **检查或安装失败**，并提示 `Disable Harness HMR and restart before updating this GitHub plugin`，也可在 Harness **插件**页卸载 WispOps，再点击 **＋ 添加插件**，输入 `https://github.com/wisp-science/WispOps` 重新安装，完成后重启 Harness。
+
 维护者发布时更新 package/lockfile 版本和 CHANGELOG、重新构建并提交 `lib/`，再推送匹配 `v<version>` 的标签。发布工作流通过检查后创建 GitHub Release 并附加 `.tgz`；不会发布 npm。日常 CI 会检查类型、测试、干净构建与已提交 `lib/` 的一致性。

@@ -59,6 +59,7 @@ dsh plugin --profile desktop add "$(pwd)"
 
 | 现象 | 原因与处理 |
 |---|---|
+| 更新时显示 **检查或安装失败**，并提示 `Disable Harness HMR and restart...` | 可在 **插件**页卸载 WispOps，再点击 **＋ 添加插件**，输入 `https://github.com/wisp-science/WispOps` 重新安装，完成后重启 Harness。 |
 | `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`，提示 `dsh-wisp-ops` 需要执行构建脚本 | 0.5.0 及更早版本从 GitHub 安装时需要在本机构建。0.5.1 起已附带构建产物，不再触发此错误。请确认安装的是最新 GitHub 地址；若仍报错，先卸载旧版再装。 |
 | 安装成功，但左侧没有 **服务器运维** | 没有重启 Harness，或插件处于停用状态。到插件页面启用后完全退出并重开。 |
 | 下载依赖很慢或超时 | 在 **安装源** 中切换为另一个源后重试。 |

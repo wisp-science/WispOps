@@ -65,4 +65,6 @@ Install a verified update manually, or enable automatic stable updates. Automati
 
 Only official GitHub installations can update here. Local links, development checkouts and other sources are preserved. Disable HMR and restart first: the host installer refuses in-place replacement of an active Git plugin with HMR enabled. Without the plugin manager, checks still work but installation requires the Plugins page. See the [Harness plugin-manager contract](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/boot/plugin-manager).
 
+If **Update check or installation failed** includes `Disable Harness HMR and restart before updating this GitHub plugin`, you can also uninstall WispOps from Harness's **Plugins** page, select **Add plugin**, enter `https://github.com/wisp-science/WispOps` to reinstall, and restart Harness.
+
 Maintainers update package/lockfile versions and CHANGELOG, build and commit `lib/`, then push a matching `v<version>` tag. The release workflow verifies types, tests and generated files, then creates a GitHub Release with the package archive. It does not publish to npm. Regular CI performs the same checks and detects obsolete generated files through a clean build.

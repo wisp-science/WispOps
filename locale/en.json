@@ -299,6 +299,7 @@
     "updates.available": "Update available",
     "updates.restart-required": "Installed — restart Harness to apply",
     "updates.failed": "Update check or installation failed",
+    "updates.reinstall": "If HMR prevents the update, you can also uninstall WispOps from Harness's Plugins page, select Add plugin and enter the following URL to reinstall, then restart Harness:",
     "updates.up-to-date": "Up to date",
     "updates.working": "Working…",
     "updates.release": "Release notes",

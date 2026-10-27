@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.1 — 2026-10-27
+
+- Add an uninstall-and-reinstall fallback with the official GitHub URL to update failure messages and installation documentation.
+
 ## 0.7.0 — 2026-10-27
 
 - `ops_change` second stage: roll a plan out to a selector host by host and stop at the first host that does not verify; back up new files (deleted on failure) and directories (tar archive, replaced on failure) besides existing files; prune host backups after `change.backupRetentionDays` (default 14) and list recorded changes with their retained backups through `ops_history kind=changes`.

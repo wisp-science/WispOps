@@ -21,6 +21,7 @@ export function UpdatePanel({ api }: { api: Api }) {
   return <section className="wo-form-body"><h2>{tr('updates.title')}</h2><p>{tr('updates.explanation')}</p>{value && <>
     <p>{tr('updates.current')}: {value.status.current}{value.status.latest && <> · {tr('updates.latest')}: {value.status.latest}</>}</p>
     <p role="status">{statusLabels[value.status.state]}{value.status.detail && <small className="wo-block">{value.status.detail}</small>}</p>
+    {value.status.state === 'failed' && <p>{tr('updates.reinstall')} <a href="https://github.com/wisp-science/WispOps" target="_blank" rel="noreferrer">https://github.com/wisp-science/WispOps</a></p>}
     {value.status.releaseUrl && <a href={value.status.releaseUrl} target="_blank" rel="noreferrer">{tr('updates.release')}</a>}
     <label className="wo-check"><input type="checkbox" checked={value.automatic} disabled={busy} onChange={e => void run('updateSettings', e.target.checked)}/>{tr('updates.automatic')}</label>
   </>}
