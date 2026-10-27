@@ -4,6 +4,9 @@ import type { PageProps } from './contracts'
 
 // Narrow adapters for the documented DSH slots and authenticated Connection APIs.
 interface ClientHost {
+  inject(services: string[], callback: (scope: ClientHost) => void): unknown
+  effect(callback: () => (() => void)): unknown
+  sidebarRightTabs: { register(definition: Record<string, unknown>): () => void }
   slots: {
     inject(name: string, callback: () => unknown): unknown
     register(options: Record<string, unknown>, component: unknown): () => void
@@ -25,4 +28,14 @@ export function apply(context: Context) {
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'wisp-ops', inject: () => ({ api }) }, OpsPage))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'wisp-ops', order: 25, label: '服务器运维' }, ServerIcon))
   ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-wisp-ops', inject: () => ({ api }) }, OpsPage))
+  ctx.inject(['sidebarRightTabs'], scope => {
+    scope.effect(() => scope.sidebarRightTabs.register({
+      id: 'dsh-wisp-ops', kind: 'wisp-ops', title: () => '服务器运维',
+      guide: [{ id: 'manage', order: 40, title: () => '服务器运维', description: () => '管理服务器、密码库和例行任务', icon: ServerIcon }],
+    }))
+    scope.slots.inject('sidebar.right.pane.tab', () => scope.slots.register({
+      name: 'sidebar.right.pane.tab', key: 'dsh-wisp-ops',
+      inject: (sessionId: string) => ({ api, sidebar: true, defaultSessionId: sessionId }),
+    }, OpsPage))
+  })
 }

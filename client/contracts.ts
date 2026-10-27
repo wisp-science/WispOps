@@ -18,4 +18,4 @@ export interface Snapshot {
 }
 export type Api = (request: Record<string, unknown>) => Promise<any>
 export interface SessionList { ids: string[]; byId: Record<string, { displayTitle: string; parentId?: string; retainedBy?: { mainView?: number } }> }
-export interface PageProps { api: Api; useSessions?: (selector: (state: SessionList) => SessionList) => SessionList }
+export interface PageProps { api: Api; sidebar?: boolean; defaultSessionId?: string; useSessions?: (selector: (state: SessionList) => SessionList) => SessionList }

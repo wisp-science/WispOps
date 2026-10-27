@@ -6,7 +6,7 @@ Multi-host server operations for DeepSeek Harness, with a Desktop/Web management
 
 ## Management panel (0.2)
 
-After upgrading, rebuild and restart Harness. Open **服务器运维** (Server operations) in the sidebar or the WispOps plugin details.
+After upgrading, rebuild and restart Harness. Open **服务器运维** (Server operations) from the right sidebar’s Start page to manage servers beside the conversation. The left sidebar and WispOps plugin details also open the full panel. Recurring tasks opened in the right sidebar default to the current conversation for reports.
 
 - **Servers:** view the existing inventory, add hosts, inspect associated credentials and tasks, and bind login/sudo credentials separately.
 - **Vault:** create encrypted credentials, update metadata without replacing a password, and disable automation access. A credential cannot be removed while a server references it.
