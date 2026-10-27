@@ -1,0 +1,36 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: node -e 'if ("v" + JSON.parse(require("fs").readFileSync("package.json")).version !== process.env.GITHUB_REF_NAME) process.exit(1)'
+      - run: npm ci
+      - run: npm run typecheck && npm test && npm run build && npm run check:generated
+      - run: npm pack --ignore-scripts
+      - name: Read release notes from CHANGELOG
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version
+          const section = readFileSync('CHANGELOG.md', 'utf8').split(/^## /m).find(part => part.startsWith(`${version} — `))
+          if (!section) throw new Error(`Missing CHANGELOG entry for ${version}`)
+          writeFileSync(process.env.RUNNER_TEMP + '/release-notes.md', section.slice(section.indexOf('\n') + 1).trim() + '\n')
+          JS
+      - run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release create "$GITHUB_REF_NAME" dsh-wisp-ops-*.tgz --verify-tag --title "WispOps ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" dsh-wisp-ops-*.tgz --verify-tag --title "WispOps ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

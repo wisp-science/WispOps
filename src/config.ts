@@ -70,6 +70,9 @@ export interface TaskSchedule {
 /** A recurring job for some servers, e.g. a morning report. */
 export interface TaskSpec {
   name: string
+  /** Human-configured channel names; credentials never enter task records. */
+  notify?: string[]
+  notifyOnlyProblems?: boolean
   /** Origin template; execution uses the saved copy, never a live template. */
   template?: string
   description?: string
@@ -176,6 +179,7 @@ export interface Config {
   hosts: HostSpec[]
   groups: Record<string, GroupSpec>
   tasks: TaskSpec[]
+  notifications: Record<string, NotificationChannel>
   /** Default IANA zone for task schedules. */
   timeZone: string
   /** Keep the agent from editing the human-managed inventory and state. */
@@ -199,6 +203,14 @@ export interface Config {
   thresholds: ThresholdsSpec
   /** Inspection history, disk snapshots, and the audit log. */
   dataDir: string
+}
+
+export interface NotificationChannel {
+  kind: 'wecom' | 'dingtalk' | 'feishu' | 'webhook'
+  /** Environment variable holding the HTTPS endpoint, including its token. */
+  urlEnv: string
+  /** Optional DingTalk/Feishu signing secret, or generic webhook bearer token. */
+  secretEnv?: string
 }
 
 const DEFAULT_EXTRA_PATH = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/sbin', '/usr/local/cuda/bin', '/opt/slurm/bin', '/usr/lpp/mmfs/bin']
@@ -244,6 +256,8 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 export const Task: z<TaskSpec> = z.object({
   name: z.string().pattern(NAME).required(),
+  notify: z.array(z.string().pattern(NAME)),
+  notifyOnlyProblems: z.boolean(),
   template: z.string().pattern(NAME),
   description: z.string(),
   targets: z.string().required(),
@@ -271,6 +285,11 @@ export const Config: z<Config> = z.object({
   hosts: z.array(host).default([]),
   groups: z.dict(group).default({}),
   tasks: z.array(Task).default([]),
+  notifications: z.dict(z.object({
+    kind: z.union(['wecom', 'dingtalk', 'feishu', 'webhook'] as const).required(),
+    urlEnv: z.string().pattern(/^[A-Za-z_][A-Za-z0-9_]*$/).required(),
+    secretEnv: z.string().pattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
+  })).default({}),
   timeZone: z.string().default(Intl.DateTimeFormat().resolvedOptions().timeZone),
   protect: z.object({
     fileTools: z.dict(z.string()).default({ write: 'file_path', edit: 'file_path', str_replace_editor: 'path' }),

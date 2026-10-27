@@ -29,6 +29,8 @@ export interface HistoryRecord extends InspectionMetrics {
     readonly status: RunStatus;
     readonly findings: readonly Finding[];
 }
+/** Read newest first in fixed-size chunks; buffers preserve split UTF-8 characters. */
+export declare function reverseJsonLines<T>(path: string): AsyncGenerator<T>;
 export declare class OpsStore {
     private readonly dir;
     constructor(dir: string);

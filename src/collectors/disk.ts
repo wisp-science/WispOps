@@ -11,6 +11,7 @@
 import { shellQuote } from '../ssh.ts'
 import { formatKb, num, parseDf, parseDfInodes, parseSections } from './sections.ts'
 import type { FsUsage } from './sections.ts'
+import { JOBS_SCRIPT, parseSchedulerJobs } from './jobs.ts'
 
 export interface DiskOptions {
   /** Absolute path whose filesystem is diagnosed. */
@@ -56,8 +57,7 @@ printf '%s\n' "$opn"
 echo @@procs
 pids=$(printf '%s\n' "$opn" | cut -f1 | grep -E '^[0-9]+$' | sort -un | head -n 500 | tr '\n' ',' | sed 's/,$//')
 [ -n "$pids" ] && ps -o pid=,user=,etimes=,comm= -p "$pids" 2>/dev/null
-echo @@jobs
-command -v squeue >/dev/null 2>&1 && squeue -h -t R -o '%i|%u|%Z' 2>/dev/null | head -n 500
+${JOBS_SCRIPT}
 `
 }
 
@@ -205,6 +205,7 @@ export interface RunningJob {
   readonly id: string
   readonly user: string
   readonly workdir: string
+  readonly scheduler?: 'slurm' | 'pbs' | 'lsf'
 }
 
 /** Parse the sections printed by {@link holdersScript}. */
@@ -233,10 +234,7 @@ export function parseHolders(s: ReadonlyMap<string, readonly string[]>): { openB
     openBy.set(target, holders)
   }
   deleted.sort((a, b) => b.bytes - a.bytes)
-  const jobs = (s.get('jobs') ?? []).flatMap(line => {
-    const [id, user, workdir] = line.split('|')
-    return id === undefined || user === undefined || workdir === undefined || workdir.length === 0 ? [] : [{ id, user, workdir }]
-  })
+  const jobs = parseSchedulerJobs(s)
   return { openBy, deleted, jobs }
 }
 
@@ -248,7 +246,7 @@ export function isUnder(path: string, dir: string): boolean {
 /** Parse the diagnosis script's output, comparing against the previous snapshot. */
 export function parseDisk(output: string, options: DiskOptions, previous?: DiskSnapshot): { report: DiskReport; snapshot?: DiskSnapshot } {
   const s = parseSections(output)
-  const notes: string[] = []
+  const notes: string[] = ['Job-directory checks cover visible Slurm/PBS/LSF jobs, up to 500 per scheduler. Missing tools, permissions or scheduler failures can hide active jobs; verify with the owner before cleanup.']
   const filesystem = parseDf(s.get('df') ?? [])[0]
   const inodeUsePct = parseDfInodes(s.get('dfi') ?? [])[0]?.usePct
   const fullVisibility = (s.get('whoami') ?? [])[0] === '0'

@@ -14,6 +14,7 @@ import type { Config, TaskSpec } from './config.ts'
 import type { Authorization } from './store.ts'
 import type { OpsService } from './service.ts'
 import { renderInspection, renderRuns } from './render.ts'
+import { notifyTask } from './notifier.ts'
 
 export const SCHEDULE_TITLE_PREFIX = 'WispOps: '
 
@@ -86,7 +87,10 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
         for (const path of task.paths ?? ['/']) {
           const { report, result } = await service.disk(host, { ...common, path, depth: 2, top: 15, minFileMb: 100, recentMinFileMb: 10, recentMinutes: 1440, walkTimeoutSec: 120 })
           parts.push(report === undefined ? renderRuns([result], 2000) : renderDisk(host.name, report))
-          if (report?.filesystem !== undefined && report.filesystem.usePct >= service.config.thresholds.diskWarnPct) bump('warn')
+          if (report === undefined) bump('unreachable')
+          else if (report.walkIncomplete || !report.filesystem) bump('incomplete')
+          if (report?.filesystem !== undefined && report.filesystem.usePct >= service.config.thresholds.diskCritPct) bump('crit')
+          else if (report?.filesystem !== undefined && report.filesystem.usePct >= service.config.thresholds.diskWarnPct) bump('warn')
         }
       }
       body = parts.join('\n\n')
@@ -102,6 +106,7 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
           continue
         }
         bump('newBytes', report.totalBytes)
+        if (report.incompleteRoots.length) bump('incomplete')
         bump('reclaimableBytes', report.plan.reduce((sum, item) => sum + item.reclaimBytes, 0))
         parts.push(renderFiles(host.name, report))
       }
@@ -122,6 +127,7 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
       break
     }
     case 'custom':
+      bump('incomplete')
       body = `No built-in collector: gather the evidence yourself with read-only ops_exec / ops_inspect calls on ${hosts.map(h => h.name).join(', ')}.`
       break
   }
@@ -130,6 +136,8 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
   const previous = history.at(-1)
   const record: TaskRunRecord = { at: new Date().toISOString(), hosts: hosts.map(h => h.name), playbook: task.playbook, counts, excerpt: body.slice(0, 6000) }
   await service.store.appendBounded('tasks', task.name, record, 90)
+  const deliveries = await notifyTask(service.config, task, record, options.signal)
+  if (deliveries.length) await service.store.appendBounded('notifications', task.name, { at: record.at, deliveries }, 90)
 
   const header = [
     `# WispOps task "${task.name}" (${task.playbook}) on ${record.hosts.join(', ')} — ${record.at}`,
@@ -139,6 +147,7 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
       ? 'No previous run recorded.'
       : `Previous run ${previous.at}: ${Object.entries(previous.counts).map(([k, v]) => `${k}=${v}`).join(', ') || 'no findings'}. Its excerpt follows the current data for comparison.`,
     REPORT_GUIDE,
+    deliveries.length ? `Notifications: ${deliveries.map(d => `${d.channel}: ${d.status}${d.detail ? ` (${d.detail})` : ''}`).join('; ')}` : undefined,
   ].filter(Boolean).join('\n')
   const tail = previous === undefined ? '' : `\n\n---\nPrevious run excerpt (${previous.at}):\n${previous.excerpt.slice(0, 2500)}`
   return { text: `${header}\n\n${body}${tail}`, record, ...previous === undefined ? {} : { previous } }

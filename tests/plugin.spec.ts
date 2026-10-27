@@ -96,7 +96,7 @@ describe('dsh-wisp-ops plugin', () => {
     expect(text(r)).toContain('hello from web-01')
     expect(text(r)).toContain('authorized by read-only')
     expect(harness.approval).not.toHaveBeenCalled()
-    const audit = await readFile(join(harness.dataDir, 'audit.jsonl'), 'utf8')
+    const audit = await readFile(join(harness.dataDir, 'audit', `${new Date().toISOString().slice(0, 7)}.jsonl`), 'utf8')
     expect(JSON.parse(audit.trim())).toMatchObject({ host: 'web-01', risk: 'read', authorization: 'read-only', status: 'ok', exitCode: 0 })
   })
 
@@ -214,7 +214,7 @@ describe('dsh-wisp-ops plugin', () => {
     expect(r.isError).toBe(false)
     expect(text(r)).toContain('gpu-01: security triage')
     expect(harness.approval).not.toHaveBeenCalled()
-    const audit = (await readFile(join(harness.dataDir, 'audit.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l))
+    const audit = (await readFile(join(harness.dataDir, 'audit', `${new Date().toISOString().slice(0, 7)}.jsonl`), 'utf8')).trim().split('\n').map(l => JSON.parse(l))
     expect(audit.at(-1)).toMatchObject({ host: 'gpu-01', sudo: true, authorization: 'task' })
   })
 

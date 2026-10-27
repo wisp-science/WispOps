@@ -14,6 +14,9 @@ import { listVault, wisptermConfigDir } from './wispterm.ts'
 import { draftTask } from './task-draft.ts'
 import { builtinTemplates, templateStore, validateTemplate } from './task-library.ts'
 import { renderTemplate } from './task-template-content.ts'
+import { OpsSync } from './sync.ts'
+import { OpsUpdates } from './updates.ts'
+import type { UpdateHost } from './updates.ts'
 
 export interface ScheduledRecord { id: string; title: string; sessionId: string; scheduledAt: string; status: string }
 export interface Scheduler {
@@ -36,9 +39,11 @@ export class OpsManager {
   private readonly state
   private readonly library
   private pending: Promise<unknown> = Promise.resolve()
-  constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined) {
+  private readonly sync
+  constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates) {
     this.state = managedStore(service.config.dataDir)
     this.library = templateStore(service.config.dataDir)
+    this.sync = new OpsSync(service, vault, async () => (await this.scheduleRecords()).some(r => r.title.startsWith(SCHEDULE_TITLE_PREFIX) && r.status === 'active'))
   }
   /** Serialize writes spanning credentials, bindings, and scheduler membership. */
   dispatch(value: unknown): Promise<unknown> {
@@ -63,6 +68,11 @@ export class OpsManager {
     await this.service.refresh()
     const action = string(request, 'action')
     if (action === 'snapshot') return this.snapshot()
+    if (['updateStatus', 'updateSettings', 'updateCheck', 'updateInstall'].includes(action)) {
+      if (!this.updates) throw new Error('Update service is unavailable')
+      return this.updates.dispatch(action, request)
+    }
+    if (['syncList', 'syncPush', 'syncPreview', 'syncPull'].includes(action)) return this.sync.handle(action, request)
     if (action === 'saveTemplate') {
       const template = validateTemplate(request.template)
       await this.library.change(string(request, 'revision'), state => {
@@ -190,12 +200,13 @@ export class OpsManager {
         const instruction = renderTemplate(template, object(request.templateValues ?? {}) as Record<string, string>)
         if (input.instruction !== undefined && typeof input.instruction !== 'string') throw new Error('报告要求格式不正确。')
         // Copy the trusted definition. Template changes never modify an existing task.
-        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
+        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours', 'notify', 'notifyOnlyProblems'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
           template: template.id, instruction: instruction + (input.instruction ? `\n补充要求：${input.instruction}` : '') }
       } else if (request.edit !== true) {
         delete input.template
       }
       const task = Task(input as never)
+      if (task.notify?.some(name => !this.service.config.notifications[name])) throw new Error('Unknown notification channel')
       if (task.name.length > 100 || task.name === 'all') throw new Error('任务名称最多 100 个字符，不能使用 all。')
       if (request.edit !== true && this.service.inventory.tasks.has(task.name)) throw new Error('任务名称已存在。')
       if (request.edit === true && !(await this.state.read()).value.tasks.some(t => t.name === task.name)) throw new Error('该任务由 YAML 配置管理，请在原配置中编辑。')
@@ -271,7 +282,7 @@ export class OpsManager {
     const probes = await this.service.store.probes()
     const hosts = [...this.service.inventory.hosts.values()].map(h => ({ ...h, credentials: { login: reference(h.loginSecret), sudo: reference(h.sudoSecret) }, tasks: tasks.filter(t => t.hosts.includes(h.name)).map(t => t.name), probe: probes[h.name] ?? null }))
     const templates = { revision: library.revision, entries: [...builtinTemplates(this.service.config), ...library.value.entries].map(t => ({ ...t, builtin: t.id.startsWith('builtin.'), uses: tasks.filter(task => task.template === t.id).length })) }
-    return { revision: state.revision, vault, hosts, tasks, templates, timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, warnings }
+    return { revision: state.revision, vault, hosts, tasks, templates, notificationChannels: Object.keys(this.service.config.notifications), timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, warnings }
   }
 }
 
@@ -279,7 +290,14 @@ export class OpsManagement extends TypertRemoteService {
   private readonly manager: OpsManager
   constructor(ctx: Context, options: { service: OpsService; vault: LocalVault }) {
     super(ctx, 'wispOps')
-    this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined)
+    const updates = new OpsUpdates(options.service.config.dataDir, () => ctx.get('pluginManager') as UpdateHost | undefined, () => ctx.get('hmr') !== undefined)
+    this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined, updates)
+    ctx.effect(() => {
+      const tick = () => { void updates.dispatch('updateTick').catch(() => {}) }
+      const timer = setInterval(tick, 15 * 60_000)
+      timer.unref(); tick()
+      return () => clearInterval(timer)
+    })
   }
   @Remote
   async manage(request: unknown): Promise<unknown> {

@@ -6,12 +6,14 @@
 
 - **主机清单**：YAML 文件（改完下一次调用即生效），支持分组、标签、`ProxyJump`、`IdentityFile`、密码登录主机；可选导入 WispTerm 的 SSH 主机。选择器：`web-01`、`@gpu`、`tag:env=prod`、`gpu-*`、`all !@prod`。
 - **巡检 `ops_inspect`**：一次往返采集负载、CPU、内存/swap、磁盘与 inode、失败的 systemd 单元、Top 进程、NVIDIA GPU 及其进程、Slurm 节点/作业状态、24h 内 OOM 与内核错误、NTP、待重启。按阈值给出 critical/warning，和上次巡检对比磁盘增长，结果写入历史。
-- **磁盘诊断 `ops_disk`**（第一版验收场景）：最大目录（含相对上次诊断的增长）、最大文件和最近增长的大文件；判断文件**是否仍被进程打开**、**是否位于运行中 Slurm 作业的工作目录**；统计“已删除但仍被占用”的空间及持有进程；检查 journal、docker、apt/dnf、conda/pip、HuggingFace 缓存、轮转日志。每个文件都有结论（in-use / job-directory / rotated-log / core-dump / recently-written / review）。清理后对同一路径再跑一次，即可核对释放了多少空间。
+- **磁盘诊断 `ops_disk`**（第一版验收场景）：最大目录（含相对上次诊断的增长）、最大文件和最近增长的大文件；判断文件**是否仍被进程打开**、**是否位于活动的 Slurm/PBS/LSF 作业的工作目录**；统计“已删除但仍被占用”的空间及持有进程；检查 journal、docker、apt/dnf、conda/pip、HuggingFace 缓存、轮转日志。每个文件都有结论（in-use / job-directory / rotated-log / core-dump / recently-written / review）。清理后对同一路径再跑一次，即可核对释放了多少空间。
 - **批量命令 `ops_exec`**：并发执行，相同输出自动折叠；每条命令先做风险分级（只读 / 变更 / 破坏性，外加 sudo）。
 - **近期新增文件分析 `ops_files`**：最近 N 天新增或修改的文件总量、落在哪些目录（与上次扫描对比增长）、属于谁；内置**测序与生信规则库**，能识别原始 FASTQ/BCL/POD5、SAM/BAM/CRAM、VCF/gVCF、修剪后 reads、SRA、Nextflow `work/`、Snakemake `.snakemake`、STAR 临时目录、Cell Ranger 阶段目录、分析对象、日志、缓存，给每类文件标出保留级别（原始数据 / 结果 / 可再生中间文件 / 可压缩转换 / 缓存 / 临时 / 需问责任人）。它还能识别被同目录文件取代的冗余文件：同名 SAM 已有 BAM、`sorted.bam` 已有下游的 `markdup.bam`、BAM 已有 CRAM、`.sra` 已有 FASTQ、未压缩文件已有 `.gz`。根据 `.nextflow.log` 和 `outs/` 判断流程是否已完成；仍被进程打开或位于运行中作业目录的文件一律排除。最后按可回收空间排序，生成带“先做什么检查”的清理计划。
 - **网络攻击排查 `ops_security`**：SSH 暴力破解来源、成功登录（同时标记暴力破解后又登录成功的地址）、连接洪泛与 SYN flood、监听端口、疑似挖矿进程、运行已删除程序或从 `/tmp`、`/dev/shm` 启动的进程、连向常见矿池/C2 端口的外连、多余的 UID 0 账户、近期改动的 authorized_keys/cron/systemd 单元、sshd 弱配置、fail2ban 状态。
 - **能力探测 `ops_hosts probe=true`**：系统、架构、核数、GPU 数、调度器（slurm/pbs/sge/lsf）、权限（root / 免密 sudo / 需密码 sudo / 无）、docker 可用性。
-- **历史 `ops_history`**：操作审计（每条远程命令的风险、授权来源、结果）和巡检历史。
+- **历史 `ops_history`**：按月操作审计、巡检历史；`kind=trends` 输出磁盘和可用内存的文本趋势。
+- **安全变更 `ops_change`**：单主机已有文件的强制备份、变更、验证和失败恢复。
+- **通知、设备同步和更新**：外部 webhook 摘要通知、坚果云 WebDAV 加密快照、中英文面板，以及稳定 Release 检查与可选自动安装，见[操作指南](./operations.md)。
 
 ## 默认技能
 
@@ -48,6 +50,6 @@
 
 - 目标主机按 GNU/Linux 处理（使用 `find -printf`、`/proc`、`stat -c`）；BSD/macOS 目标上部分诊断项会缺失；Windows 目标不支持。
 - 超时后本地 ssh 会被结束，但远端命令可能仍在运行，结果里会提示。
-- 汇报投递到 DSH 会话里（在 Web 端查看），暂不推送到企业微信、钉钉、邮件等外部渠道。
+- 汇报保留在 DSH 会话，配置后可外发采集摘要；custom 任务尚需模型继续采集。
 - 新增文件按修改时间判断，因为 Linux 的 find 通常拿不到文件的创建时间。
-- 尚未完成：`ops_change`（自动备份 → 变更 → 验证 → 失败回滚，目前由 `wisp-safe-change` 技能约束模型手动执行）、Web 面板（机群总览、巡检趋势图）、PBS/LSF 的作业目录识别、容器内磁盘归因、外部通知渠道。
+- 后续方向：机群总览及交互趋势图、容器内磁盘归因、更多内置采集器、同步版本合并。

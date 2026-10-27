@@ -21,6 +21,7 @@ import type { Decision, GrantStore } from './policy.ts'
 import { classifyCommand } from './risk.ts'
 import type { RiskAssessment } from './risk.ts'
 import type { Authorization } from './store.ts'
+import { changeCommands, changeRisk, describeChange, validateChange } from './change.ts'
 
 /** What the gate concluded for one tool call, consumed once by the tool. */
 export interface Voucher {
@@ -52,6 +53,10 @@ export function planAction(tool: string, args: unknown, extraRead: ReadonlySet<s
   const a = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
   const sudo = a.sudo === true
   switch (tool) {
+    case 'ops_change': {
+      const plan = validateChange(args)
+      return { selector: plan.host, command: describeChange(plan), risk: changeRisk(plan, extraRead), sudo }
+    }
     case 'ops_exec': {
       const command = str(a.command) ?? ''
       return { selector: str(a.targets) ?? '', command, risk: classifyCommand(command, extraRead), sudo }
@@ -114,7 +119,8 @@ export function gateOpsCall(
     // Selector errors surface from the tool body with the real message; nothing runs.
     return { kind: 'pass' }
   }
-  const pattern = deniedByPattern(action.command, context.denyPatterns)
+  const commands = tool === 'ops_change' ? changeCommands(validateChange(args)) : [action.command]
+  const pattern = commands.map(command => deniedByPattern(command, context.denyPatterns)).find(Boolean)
   if (pattern !== undefined) {
     return { kind: 'deny', reason: `Refused by the deployment deny list (${pattern.source}). This command is never run by the agent; a human must do it directly if it is really intended.` }
   }
@@ -144,14 +150,15 @@ export function gateOpsCall(
       const why = action.risk.reasons.length > 0 ? ` Risk: ${action.risk.reasons.join('; ')}.` : ''
       const reasonText = str((args as Record<string, unknown> | null)?.reason)
       const needs = [...new Set(decision.pending.map(r => r.capability))].join(' + ')
-      const reason = `${tool} on ${hostList(hosts)} needs ${needs}.${why} Command: ${compact(action.command)}${reasonText === undefined ? '' : ` Purpose: ${compact(reasonText, 300)}`}`
+      const display = tool === 'ops_change' ? action.command : compact(action.command)
+      const reason = `${tool} on ${hostList(hosts)} needs ${needs}.${why} Command: ${display}${reasonText === undefined ? '' : ` Purpose: ${compact(reasonText, 300)}`}`
       return {
         kind: 'ask',
         voucher: { ...base, authorization: 'approval' },
         reason,
         displayReason: {
-          en: `Allow ${needs} on ${hostList(hosts)}? ${compact(action.command, 300)}`,
-          zh: `允许在 ${hostList(hosts)} 上执行需要 ${needs.replace('change', '变更').replace('sudo', 'sudo 提权').replace('destructive', '破坏性操作')} 的命令吗？${compact(action.command, 300)}`,
+          en: `Allow ${needs} on ${hostList(hosts)}? ${tool === 'ops_change' ? display : compact(action.command, 300)}`,
+          zh: `允许在 ${hostList(hosts)} 上执行需要 ${needs.replace('change', '变更').replace('sudo', 'sudo 提权').replace('destructive', '破坏性操作')} 的命令吗？${tool === 'ops_change' ? display : compact(action.command, 300)}`,
         },
       }
     }

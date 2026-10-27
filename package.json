@@ -1,6 +1,6 @@
 {
   "name": "dsh-wisp-ops",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Server management, an independent encrypted credential vault, and per-server recurring operations for DeepSeek Harness.",
   "keywords": [
     "dsh",
@@ -52,7 +52,8 @@
     "icon.svg",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "icon": "./icon.svg",
   "dsh": {
@@ -66,7 +67,8 @@
         "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-ui-plugin-manager",
         "@deepseek-ai/dsh-client-ui-session",
-        "@deepseek-ai/dsh-client-ui-sidebar-right"
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   },
@@ -75,10 +77,11 @@
     "node": ">=24.9"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
     "test": "vitest run",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "check:generated": "node scripts/check-generated.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "^1.3.0",

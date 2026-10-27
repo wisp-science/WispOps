@@ -5,7 +5,7 @@
  * @module dsh-wisp-ops/store
  */
 
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DiskSnapshot } from './collectors/disk.ts'
 import type { HostProbe } from './collectors/probe.ts'
@@ -56,6 +56,41 @@ async function readJsonLines<T>(path: string): Promise<T[]> {
   return rows
 }
 
+/** Read newest first in fixed-size chunks; buffers preserve split UTF-8 characters. */
+export async function* reverseJsonLines<T>(path: string): AsyncGenerator<T> {
+  const file = await open(path, 'r').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined
+    throw error
+  })
+  if (!file) return
+  try {
+    let pos = (await file.stat()).size
+    let tail = Buffer.alloc(0)
+    let oversized = false
+    while (pos > 0) {
+      const size = Math.min(64 * 1024, pos)
+      pos -= size
+      const block = Buffer.alloc(size)
+      const { bytesRead } = await file.read(block, 0, size, pos)
+      const data = Buffer.concat([block.subarray(0, bytesRead), tail])
+      let end = data.length
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] !== 10) continue
+        if (!oversized) {
+          try { yield JSON.parse(data.subarray(i + 1, end).toString('utf8')) as T } catch { /* torn/malformed line */ }
+        }
+        oversized = false
+        end = i
+      }
+      tail = data.subarray(0, end)
+      if (tail.length > 1024 * 1024) { tail = Buffer.alloc(0); oversized = true }
+    }
+    if (!oversized && tail.length) {
+      try { yield JSON.parse(tail.toString('utf8')) as T } catch { /* torn/malformed line */ }
+    }
+  } finally { await file.close() }
+}
+
 export class OpsStore {
   constructor(private readonly dir: string) {}
 
@@ -66,14 +101,27 @@ export class OpsStore {
   }
 
   async audit(entry: AuditEntry): Promise<void> {
-    await appendFile(join(await this.ensure(), 'audit.jsonl'), `${JSON.stringify(entry)}\n`, { mode: 0o600 })
+    const month = new Date(entry.at).toISOString().slice(0, 7)
+    await appendFile(join(await this.ensure('audit'), `${month}.jsonl`), `${JSON.stringify(entry)}\n`, { mode: 0o600 })
   }
 
   async readAudit(filter: { hosts?: ReadonlySet<string>; sinceMs?: number; limit: number }): Promise<AuditEntry[]> {
-    const rows = await readJsonLines<AuditEntry>(join(this.dir, 'audit.jsonl'))
-    return rows
-      .filter(row => (filter.hosts === undefined || filter.hosts.has(row.host)) && (filter.sinceMs === undefined || Date.parse(row.at) >= filter.sinceMs))
-      .slice(-filter.limit)
+    if (filter.limit <= 0) return []
+    const names = (await readdir(join(this.dir, 'audit')).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [] as string[]
+      throw error
+    })).filter(name => /^\d{4}-\d{2}\.jsonl$/.test(name)).sort().reverse()
+    const month = filter.sinceMs === undefined ? undefined : new Date(filter.sinceMs).toISOString().slice(0, 7)
+    const paths = [...names.filter(name => month === undefined || name.slice(0, 7) >= month).map(name => join(this.dir, 'audit', name)), join(this.dir, 'audit.jsonl')]
+    const rows: AuditEntry[] = []
+    for (const path of paths) {
+      for await (const row of reverseJsonLines<AuditEntry>(path)) {
+        if (!row || typeof row.host !== 'string' || !Number.isFinite(Date.parse(row.at))) continue
+        if ((filter.hosts === undefined || filter.hosts.has(row.host)) && (filter.sinceMs === undefined || Date.parse(row.at) >= filter.sinceMs)) rows.push(row)
+        if (rows.length >= filter.limit) return rows.reverse()
+      }
+    }
+    return rows.reverse()
   }
 
   async appendHistory(host: string, record: HistoryRecord): Promise<void> {
@@ -81,7 +129,14 @@ export class OpsStore {
   }
 
   async readHistory(host: string, limit: number): Promise<HistoryRecord[]> {
-    return (await readJsonLines<HistoryRecord>(join(this.dir, 'inspections', `${host}.jsonl`))).slice(-limit)
+    const rows: HistoryRecord[] = []
+    if (limit <= 0) return rows
+    for await (const row of reverseJsonLines<HistoryRecord>(join(this.dir, 'inspections', `${host}.jsonl`))) {
+      if (!row || !row.diskPct || !Array.isArray(row.findings)) continue
+      rows.push(row)
+      if (rows.length >= limit) break
+    }
+    return rows.reverse()
   }
 
   /** The latest successful inspection, used as the trend baseline. */

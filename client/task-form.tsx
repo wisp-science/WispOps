@@ -1,11 +1,12 @@
+import { tr } from './i18n'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Api, Snapshot, Task, TaskDraft } from './contracts'
 import { renderTemplate } from '../src/task-template-content'
 import type { TaskTemplate } from '../src/task-template-content'
 
-const playbooks = { inspect: '健康巡检', disk: '磁盘诊断', 'new-files': '新增文件分析', security: '安全排查', custom: '综合 / 自定义检查' }
-const weekdays = ['一', '二', '三', '四', '五', '六', '日']
+const getPlaybooks = (): Record<string, string> => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("combined.custom.checks") })
+const getWeekdays = () => [tr("mon"), tr("tue"), tr("wed"), tr("thu"), tr("fri"), tr("sat"), tr("sun")]
 function Field({ title, children, hint }: { title: string; children: ReactNode; hint?: string }) {
   return <label className="wo-field"><span>{title}</span>{children}{hint && <small>{hint}</small>}</label>
 }
@@ -25,6 +26,8 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
     return name
   }
   const [selected, setSelected] = useState(task?.hosts ?? (host ? [host] : []))
+  const [notify, setNotify] = useState(task?.notify ?? [])
+  const [notifyOnlyProblems, setNotifyOnlyProblems] = useState(task?.notifyOnlyProblems ?? true)
   const [playbook, setPlaybook] = useState(defaults?.playbook ?? 'inspect')
   const [frequency, setFrequency] = useState(defaults?.schedule?.everyMinutes ? 'interval' : defaults?.schedule?.cron ? 'cron' : defaults?.schedule?.weekdays?.length ? 'weekly' : 'daily')
   const [days, setDays] = useState(defaults?.schedule?.weekdays ?? [1, 2, 3, 4, 5])
@@ -45,7 +48,7 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
   function invalidateDraft() {
     if (draft) {
       setFields(previous => ({ ...previous, instruction: '', ...(!task ? { name: '', description: '' } : {}) }))
-      setError('服务器或检查内容已变化，请重新生成规则，或手动填写报告要求。')
+      setError(tr("servers.or.checks.changed.regenerate.rules"))
     }
     setDraft(undefined)
   }
@@ -68,7 +71,7 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
         ...(!task ? { time: result.task.schedule?.daily ?? '08:30', zone: result.task.schedule?.timeZone ?? data.timeZone } : {}),
       }))
       if (!task) setFrequency('daily')
-    } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : '生成失败，请重试。') }
+    } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : tr("generation.failed.please.retry")) }
     finally { if (alive.current) setGenerating(false) }
   }
   function save(e: FormEvent<HTMLFormElement>) {
@@ -77,6 +80,7 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
     const schedule = { timeZone: fields.zone, ...(frequency === 'interval' ? { everyMinutes: fields.interval } : frequency === 'cron' ? { cron: fields.cron } : { daily: fields.time, ...(frequency === 'weekly' ? { weekdays: days } : {}) }) }
     void submit({
       name: fields.name, description: fields.description, targets: selected.join(','), playbook, instruction: fields.instruction, schedule, sudo: fields.sudo,
+      notify, notifyOnlyProblems,
       ...(['disk', 'new-files'].includes(playbook) ? { paths: fields.paths.split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
       ...(playbook === 'new-files' ? { days: fields.lookbackDays } : {}), ...(playbook === 'security' ? { hours: fields.hours } : {}),
       ...(task?.template ? { template: task.template } : {}),
@@ -84,37 +88,38 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
   }
   return <form onSubmit={save}>
     <fieldset className="wo-form-body" disabled={disabled}>
-      <fieldset className="wo-server-picks"><legend>关联服务器 · 已选 {selected.length} 台</legend>
+      <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}</legend>
         {data.hosts.map(h => <label className="wo-check" key={h.name}><input type="checkbox" checked={selected.includes(h.name)} onChange={e => changeSelection(e.target.checked ? [...selected, h.name] : selected.filter(n => n !== h.name))}/>{h.name}<small>{h.ssh}</small></label>)}
-        {!data.hosts.length && <p>请先添加服务器。</p>}
+        {!data.hosts.length && <p>{tr("add.a.server.first")}</p>}
       </fieldset>
-      {template ? <><div className="wo-template-context"><strong>{template.title}</strong><p>{template.description}</p><small>规则已准备好，填写检查对象即可。保存后独立运行。</small></div>{template.parameters.map(p => <Field key={p.key} title={p.label} hint={p.hint}><textarea value={parameters[p.key] ?? ''} onChange={e => setParameters(previous => ({ ...previous, [p.key]: e.target.value }))} required={p.required} maxLength={4000} rows={2}/></Field>)}<details className="wo-template-preview"><summary>查看预设巡查规则</summary><p>{renderTemplate(template, parameters, false)}</p></details></> : <><Field title="检查内容"><select value={playbook} onChange={e => { setPlaybook(e.target.value); invalidateDraft(); if (e.target.value === 'new-files' && fields.paths === '/') set('paths', '/var/log') }}>{Object.entries(playbooks).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+      {template ? <><div className="wo-template-context"><strong>{template.title}</strong><p>{template.description}</p><small>{tr("rules.are.ready.specify.the.check")}</small></div>{template.parameters.map(p => <Field key={p.key} title={p.label} hint={p.hint}><textarea value={parameters[p.key] ?? ''} onChange={e => setParameters(previous => ({ ...previous, [p.key]: e.target.value }))} required={p.required} maxLength={4000} rows={2}/></Field>)}<details className="wo-template-preview"><summary>{tr("view.preset.inspection.rules")}</summary><p>{renderTemplate(template, parameters, false)}</p></details></> : <><Field title={tr("checks")}><select value={playbook} onChange={e => { setPlaybook(e.target.value); invalidateDraft(); if (e.target.value === 'new-files' && fields.paths === '/') set('paths', '/var/log') }}>{Object.entries(getPlaybooks()).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
       <div className="wo-generator">
-        <strong>让插件生成巡查规则</strong>
-        <p>根据系统能力、历史巡检和告警阈值，自动填好任务名称、检查项及报告要求；生成后仍可编辑。</p>
-        <label className="wo-check"><input type="checkbox" checked={refreshProbe} onChange={e => setRefreshProbe(e.target.checked)}/>先连接所选服务器做只读探测</label>
-        <small>{refreshProbe ? '探测系统、GPU、调度器和容器能力，可能需要几十秒。' : '使用已保存的探测和巡检记录，不连接服务器。'}</small>
-        <button type="button" className="wo-primary" disabled={!selected.length} onClick={() => void generate()}>{generating ? '正在生成…' : '自动生成巡查规则'}</button>
+        <strong>{tr("generate.inspection.rules")}</strong>
+        <p>{tr("fill.the.task.name.checks.and")}</p>
+        <label className="wo-check"><input type="checkbox" checked={refreshProbe} onChange={e => setRefreshProbe(e.target.checked)}/>{tr("connect.to.selected.servers.for.a")}</label>
+        <small>{refreshProbe ? tr("probing.os.gpu.schedulers.and.containers") : tr("use.saved.probes.and.inspection.records")}</small>
+        <button type="button" className="wo-primary" disabled={!selected.length} onClick={() => void generate()}>{generating ? tr("generating") : tr("generate.inspection.rules.2")}</button>
       </div></>}
       {error && <p role="alert" className="wo-alert">{error}</p>}
-      {draft && <div className="wo-draft-evidence" role="status"><strong>已生成草稿 · 尚未保存</strong>{draft.evidence.map(item => <p key={item.host}><b>{item.host}</b>：{item.summary}<small>{item.probeAt && `探测：${new Date(item.probeAt).toLocaleString()}`}{item.inspectionAt && ` · 巡检：${new Date(item.inspectionAt).toLocaleString()}`}</small></p>)}{draft.warnings.map(w => <p className="wo-draft-warning" key={w}>{w}</p>)}</div>}
+      {draft && <div className="wo-draft-evidence" role="status"><strong>{tr("draft.generated.not.saved")}</strong>{draft.evidence.map(item => <p key={item.host}><b>{item.host}</b>：{item.summary}<small>{item.probeAt && tr("probe", { p0: new Date(item.probeAt).toLocaleString() })}{item.inspectionAt && tr("inspection", { p0: new Date(item.inspectionAt).toLocaleString() })}</small></p>)}{draft.warnings.map(w => <p className="wo-draft-warning" key={w}>{w}</p>)}</div>}
       <div className="wo-form-grid">
-        <Field title="任务名称" hint="自动生成或填写唯一标识，如 hk-daily"><input value={fields.name} onChange={e => { nameTouched.current = true; set('name', e.target.value) }} readOnly={!!task} required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={100}/></Field>
-        <Field title="显示标题"><input value={fields.description} onChange={e => set('description', e.target.value)} placeholder="香港服务器每日巡检"/></Field>
+        <Field title={tr("task.name")} hint={tr("generate.or.enter.a.unique.identifier")}><input value={fields.name} onChange={e => { nameTouched.current = true; set('name', e.target.value) }} readOnly={!!task} required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={100}/></Field>
+        <Field title={tr("display.title")}><input value={fields.description} onChange={e => set('description', e.target.value)} placeholder={tr("daily.inspection.of.the.hong.kong")}/></Field>
       </div>
-      <Field title={template ? '补充要求（可选）' : '报告要求'} hint="可补充关注的指标和汇报方式。"><textarea value={fields.instruction} onChange={e => set('instruction', e.target.value)} required={!template && playbook === 'custom'} rows={draft ? 8 : 3} placeholder={template ? '例如仅详细列出异常项。' : '点击上方自动生成巡查规则，无需手动撰写。'}/></Field>
-      {['disk', 'new-files'].includes(playbook) && <Field title="扫描路径" hint="绝对路径，多个路径用逗号分隔"><input value={fields.paths} onChange={e => set('paths', e.target.value)} required/></Field>}
-      {playbook === 'new-files' && <Field title="最近多少天"><input type="number" min="1" value={fields.lookbackDays} onChange={e => set('lookbackDays', Number(e.target.value))} required/></Field>}
-      {playbook === 'security' && <Field title="回溯小时数"><input type="number" min="1" value={fields.hours} onChange={e => set('hours', Number(e.target.value))} required/></Field>}
+      <Field title={template ? tr("additional.requirements.optional") : tr("report.requirements")} hint={tr("add.metrics.to.focus.on.and")}><textarea value={fields.instruction} onChange={e => set('instruction', e.target.value)} required={!template && playbook === 'custom'} rows={draft ? 8 : 3} placeholder={template ? tr("for.example.describe.only.abnormal.findings") : tr("use.generate.inspection.rules.above.to")}/></Field>
+      {['disk', 'new-files'].includes(playbook) && <Field title={tr("scan.paths")} hint={tr("absolute.paths.separated.by.commas")}><input value={fields.paths} onChange={e => set('paths', e.target.value)} required/></Field>}
+      {playbook === 'new-files' && <Field title={tr("look.back.days")}><input type="number" min="1" value={fields.lookbackDays} onChange={e => set('lookbackDays', Number(e.target.value))} required/></Field>}
+      {playbook === 'security' && <Field title={tr("look.back.hours")}><input type="number" min="1" value={fields.hours} onChange={e => set('hours', Number(e.target.value))} required/></Field>}
       <div className="wo-form-grid">
-        <Field title="运行频率"><select value={frequency} onChange={e => setFrequency(e.target.value)}><option value="daily">每天</option><option value="weekly">每周</option><option value="interval">固定间隔</option><option value="cron">Cron 表达式</option></select></Field>
-        {frequency === 'interval' ? <Field title="间隔（分钟）"><input type="number" min="1" value={fields.interval} onChange={e => set('interval', Number(e.target.value))} required/></Field> : frequency === 'cron' ? <Field title="五段 Cron"><input value={fields.cron} onChange={e => set('cron', e.target.value)} required/></Field> : <Field title="运行时间"><input type="time" value={fields.time} onChange={e => set('time', e.target.value)} required/></Field>}
+        <Field title={tr("frequency")}><select value={frequency} onChange={e => setFrequency(e.target.value)}><option value="daily">{tr("daily")}</option><option value="weekly">{tr("weekly.2")}</option><option value="interval">{tr("fixed.interval")}</option><option value="cron">{tr("cron.expression")}</option></select></Field>
+        {frequency === 'interval' ? <Field title={tr("interval.minutes")}><input type="number" min="1" value={fields.interval} onChange={e => set('interval', Number(e.target.value))} required/></Field> : frequency === 'cron' ? <Field title={tr("five.field.cron")}><input value={fields.cron} onChange={e => set('cron', e.target.value)} required/></Field> : <Field title={tr("run.time")}><input type="time" value={fields.time} onChange={e => set('time', e.target.value)} required/></Field>}
       </div>
-      {frequency === 'weekly' && <div className="wo-weekdays">{weekdays.map((d, i) => <label key={d}><input type="checkbox" checked={days.includes(i + 1)} onChange={e => setDays(e.target.checked ? [...days, i + 1] : days.filter(n => n !== i + 1))}/>{d}</label>)}</div>}
-      <Field title="时区"><input value={fields.zone} onChange={e => set('zone', e.target.value)} required list="wo-zones"/><datalist id="wo-zones"><option value="Asia/Shanghai"/><option value="America/Los_Angeles"/><option value="UTC"/></datalist></Field>
-      <label className="wo-check"><input type="checkbox" checked={fields.sudo} onChange={e => set('sudo', e.target.checked)}/>预先授权此任务的只读采集使用 sudo</label>
-      <p className="wo-muted">保存后，在例行任务页选择汇报会话并启用调度。</p>
-      <div className="wo-form-actions"><button className="wo-primary" disabled={!selected.length || (frequency === 'weekly' && !days.length)}>{busy ? '保存中…' : '保存任务'}</button></div>
+      {frequency === 'weekly' && <div className="wo-weekdays">{getWeekdays().map((d, i) => <label key={d}><input type="checkbox" checked={days.includes(i + 1)} onChange={e => setDays(e.target.checked ? [...days, i + 1] : days.filter(n => n !== i + 1))}/>{d}</label>)}</div>}
+      <Field title={tr("time.zone")}><input value={fields.zone} onChange={e => set('zone', e.target.value)} required list="wo-zones"/><datalist id="wo-zones"><option value="Asia/Shanghai"/><option value="America/Los_Angeles"/><option value="UTC"/></datalist></Field>
+      <label className="wo-check"><input type="checkbox" checked={fields.sudo} onChange={e => set('sudo', e.target.checked)}/>{tr("pre.authorize.sudo.for.this.task")}</label>
+      <fieldset><legend>{tr("external.notifications")}</legend>{(data.notificationChannels ?? []).map(name => <label className="wo-check" key={name}><input type="checkbox" checked={notify.includes(name)} onChange={e => setNotify(e.target.checked ? [...notify, name] : notify.filter(n => n !== name))}/>{name}</label>)}{!data.notificationChannels?.length && <p>{tr("add.notification.channels.in.the.plugin")}</p>}<label className="wo-check"><input type="checkbox" checked={notifyOnlyProblems} onChange={e => setNotifyOnlyProblems(e.target.checked)}/>{tr("notify.only.on.warnings.failures.or")}</label></fieldset>
+      <p className="wo-muted">{tr("after.saving.choose.a.report.session")}</p>
+      <div className="wo-form-actions"><button className="wo-primary" disabled={!selected.length || (frequency === 'weekly' && !days.length)}>{busy ? tr("saving") : tr("save.task")}</button></div>
     </fieldset>
   </form>
 }

@@ -41,6 +41,8 @@ export interface ExecOptions {
   readonly risk: RiskLevel
   readonly authorization: Authorization
   readonly reason?: string
+  /** Exact approved plan for managed changes, instead of the generated wrapper. */
+  readonly auditCommand?: string
 }
 
 export interface HostInspectionResult {
@@ -138,7 +140,7 @@ export class OpsService {
       risk: options.risk,
       sudo: options.sudo,
       authorization: options.authorization,
-      command: script.length > 4000 ? `${script.slice(0, 4000)}…` : script,
+      command: options.auditCommand ?? (script.length > 4000 ? `${script.slice(0, 4000)}…` : script),
       ...options.reason === undefined ? {} : { reason: options.reason },
       status: result.status,
       exitCode: result.exitCode,

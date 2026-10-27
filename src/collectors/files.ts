@@ -175,7 +175,7 @@ function pipelineKind(path: string): PipelineDir['kind'] {
 /** Parse the scan output and build the cleanup plan. */
 export function parseFiles(output: string, options: FilesOptions, previous?: FilesSnapshot): { report: FilesReport; snapshot: FilesSnapshot } {
   const s = parseSections(output)
-  const notes: string[] = []
+  const notes: string[] = ['Job-directory checks cover visible Slurm/PBS/LSF jobs, up to 500 per scheduler. Missing tools, permissions or scheduler failures can hide active jobs; verify with the owner before cleanup.']
   const fullVisibility = (s.get('whoami') ?? [])[0] === '0'
   const [totalText, countText] = (s.get('total') ?? [])[0]?.split('\t') ?? []
   const totalBytes = num(totalText) ?? 0

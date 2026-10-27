@@ -12,3 +12,4 @@ export interface ManagedState {
     tasks: TaskSpec[];
 }
 export declare function managedStore(dataDir: string): LocalState<ManagedState>;
+export declare function validateManaged(value: unknown): ManagedState;

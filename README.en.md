@@ -25,7 +25,7 @@ Requirements: DeepSeek Harness `>=0.2.1-rc.3 <0.3.0` and network access to GitHu
 
 ### Upgrading
 
-WispOps is not an on-demand official plugin, so the plugin page shows no **Update** button. Uninstall WispOps on the **Plugins** page (including a previous local `link:` installation), install again from the GitHub URL, and restart Harness. Servers, the vault, and recurring tasks live in `~/.dsh-wisp-ops/` by default and are not removed by uninstalling.
+Open **Server operations → Updates** to check and install stable GitHub Releases, or opt in to automatic updates. Restart Harness after installation. Development links are preserved. For old versions, uninstall and reinstall from GitHub; data in `~/.dsh-wisp-ops/` is retained. See [updates and sync](./docs/operations.en.md).
 
 ### Troubleshooting
 
@@ -70,12 +70,13 @@ Generation uses cached records by default. An optional read-only SSH probe refre
 |---|---|
 | `ops_hosts` | Inventory, policy, grants, login blocks; `probe=true` detects OS, GPUs, scheduler, privilege, docker |
 | `ops_inspect` | Read-only fleet inspection: load, CPU, memory, disks, inodes, failed units, top processes, GPUs, Slurm, OOM and kernel errors, NTP, pending reboot. Thresholds produce findings, and growth is compared with the previous run |
-| `ops_disk` | Disk-full diagnosis: largest directories and their growth, large and recently grown files, open-file holders, files in running Slurm job directories, deleted-but-open space, common caches. A second run on the same path verifies a cleanup |
+| `ops_disk` | Disk-full diagnosis: largest directories and their growth, large and recently grown files, open-file holders, files in active Slurm/PBS/LSF job directories, deleted-but-open space, common caches. A second run on the same path verifies a cleanup |
+| `ops_change` | Back up existing regular files on one host, apply, verify and restore on failure; the complete plan uses the permission gate |
 | `ops_exec` | Fleet command with risk classification (read / change / destructive, plus sudo); identical output is folded |
 | `ops_files` | Recent-file analysis with sequencing/bioinformatics knowledge. It covers raw data, alignments, variants, pipeline work directories, intermediates and caches. It also finds files superseded by a sibling and judges whether pipeline runs finished, then builds a cleanup plan that excludes open files and running jobs |
 | `ops_security` | Security triage: SSH brute force and logins, floods, listening services, miners, suspicious executables, mining/C2 outbound connections, persistence changes |
 | `ops_task` | Run a predefined per-server task (playbook `inspect`, `disk`, `new-files`, `security`, or `custom`) and get its data, the user's instruction, and the previous run |
-| `ops_history` | Operation audit log and inspection history |
+| `ops_history` | Monthly operation audit log, inspection history and disk/memory trends |
 
 The model cannot invoke these human-only commands:
 
@@ -87,6 +88,10 @@ The model cannot invoke these human-only commands:
 | `/ops-unblock <host\|all>` | Resume logins to a host paused after an authentication failure |
 | `/ops-inspect [selector]` | Run an inspection without the model |
 | `/ops-tasks`, `/ops-schedule <task\|all>`, `/ops-unschedule`, `/ops-run <task>` | Per-server tasks. Scheduling goes through the DSH Schedule service (Web profile); a due task wakes the session and the agent writes the report |
+
+## Notifications, sync and updates
+
+Task summaries can go to WeCom, DingTalk, Feishu or generic HTTPS webhooks, including email gateways. The Device sync panel exchanges encrypted vault credentials, panel configuration and explicitly selected SSH private keys through Nutstore/WebDAV. The Updates panel checks stable official Releases and supports opt-in automatic installation. See the [configuration and operating guide](./docs/operations.en.md) and [changelog](./CHANGELOG.md).
 
 ## Permission model
 
@@ -143,7 +148,7 @@ A linked install needs `npm run build` and a Harness restart after each source c
 
 - Target hosts are assumed to be GNU/Linux.
 - A timed-out remote command may still be running.
-- The management panel currently uses Chinese labels. YAML-owned tasks are edited in YAML. A scheduled task must be stopped before its definition can be edited in the panel.
-- A dedicated `ops_change` workflow (backup, change, verify, roll back) is not implemented.
+- The management panel follows the Harness English/Chinese locale. Saved user content keeps its original language. YAML-owned tasks are edited in YAML. A scheduled task must be stopped before its definition can be edited in the panel.
+- `ops_change` restores listed existing files; unlisted side effects are outside its recovery scope. WebDAV sync replaces snapshots explicitly and does not merge in the background.
 
 MIT licensed.

@@ -16,6 +16,8 @@ import type { FleetInspection } from './service.ts'
 import type { OpsService } from './service.ts'
 import type { Voucher } from './gate.ts'
 import { renderInspection, renderRuns } from './render.ts'
+import { changeScript, describeChange, validateChange } from './change.ts'
+import { renderTrends } from './trends.ts'
 
 /** Vouchers issued by the gate, keyed by execution token and consumed once. */
 export class VoucherBook {
@@ -48,6 +50,39 @@ const SESSION = (exec: Pick<ToolExecution, 'agent'>) => (exec.agent === undefine
 
 export function registerTools(ctx: Context, service: OpsService, vouchers: VoucherBook): void {
   const { config } = service
+  const changing = new Set<string>()
+
+  ctx.tools.register(defineTool({
+    name: 'ops_change',
+    description: 'Change existing regular files on exactly one host with enforced backup, apply, verify and automatic restore on failure. List EVERY file the command can modify. Backups are retained in /var/tmp. afterRollback reloads restored configuration if needed. This does not roll back package installs, databases or other unlisted state. Requires GNU timeout. Start with one canary host. An interrupted connection has an unknown outcome: inspect before retrying.',
+    parameters: {
+      host: { type: 'string', required: true },
+      files: { type: 'array', items: { type: 'string' }, required: true, description: '1–30 absolute paths of existing regular files to back up.' },
+      command: { type: 'string', required: true, description: 'Apply the change; nonzero exit triggers rollback.' },
+      verify: { type: 'string', required: true, description: 'Verification script; nonzero exit triggers rollback.' },
+      afterRollback: { type: 'string', description: 'Run after restoring files, e.g. reload the service and check health. Failure is reported.' },
+      reason: { type: 'string', required: true },
+      sudo: { type: 'boolean' },
+      timeoutMs: { type: 'integer', description: 'Per-stage timeout, default 15000; a rollback budget is reserved within limits.maxTimeoutMs.' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: (value as { text: string }).text }] },
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      const plan = validateChange(args)
+      const hosts = service.select(plan.host)
+      if (hosts.length !== 1) throw new Error('ops_change takes exactly one host')
+      const voucher = vouchers.take(exec, hosts.map(h => h.name))
+      const host = hosts[0]!
+      if (changing.has(host.name)) throw new Error('A managed change is already running on this host')
+      if (config.limits.maxTimeoutMs < 20_000) throw new Error('ops_change requires maxTimeoutMs >= 20000 to reserve rollback time')
+      const seconds = Math.max(1, Math.floor(Math.min(plan.timeoutMs ?? 15_000, (config.limits.maxTimeoutMs - 15_000) / 3) / 1000))
+      changing.add(host.name)
+      try {
+        const results = await service.execute(hosts, changeScript(plan, seconds), { sudo: args.sudo === true && voucher.sudo, signal: exec.signal, timeoutMs: seconds * 3000 + 15_000, tool: 'ops_change', auditCommand: describeChange(plan), risk: voucher.risk.level, authorization: voucher.authorization, reason: plan.reason, session: SESSION(exec) })
+        return json({ text: `${describeChange(plan)}\n\n${renderRuns(results, 12000)}\nBackups are retained. If SSH timed out or disconnected, the final state is unknown; inspect before retrying.`, results })
+      } finally { changing.delete(host.name) }
+    },
+  }))
 
   ctx.tools.register(defineTool({
     name: 'ops_hosts',
@@ -323,7 +358,7 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
     name: 'ops_history',
     description: 'Read past operations (the audit log of every remote command, with risk, authorization and result) or past inspections (health findings and metrics over time) for some servers. Use it for "what changed", "when did this start", and failure history.',
     parameters: {
-      kind: { type: 'string', enum: ['operations', 'inspections'], required: true },
+      kind: { type: 'string', enum: ['operations', 'inspections', 'trends'], required: true },
       targets: { type: 'string', description: 'Selector; default all.' },
       sinceHours: { type: 'number', description: 'Only entries newer than this; default 168 (7 days).' },
       limit: { type: 'integer', description: 'Maximum entries (per host for inspections); default 50.' },
@@ -351,6 +386,7 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
         out[host.name] = rows
         if (rows.length === 0) continue
         lines.push(`## ${host.name}`)
+        if (args.kind === 'trends') { lines.push(...renderTrends(rows)); continue }
         for (const r of rows) {
           const disks = Object.entries(r.diskPct).map(([m, p]) => `${m} ${p}%`).join(' ')
           const problems = r.findings.filter(f => f.severity !== 'info').map(f => f.code)

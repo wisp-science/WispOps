@@ -153,7 +153,7 @@ describe('disk diagnosis', () => {
       '/data/scratch/core.1234': 'core-dump',
     })
     expect(report.largeFiles[0]?.holders).toEqual([{ pid: 4242, user: 'alice', elapsedSec: 86400, command: 'python' }])
-    expect(report.largeFiles[1]?.job).toEqual({ id: '1001', user: 'bob', workdir: '/data/projects/bob' })
+    expect(report.largeFiles[1]?.job).toEqual({ id: '1001', user: 'bob', workdir: '/data/projects/bob', scheduler: 'slurm' })
   })
 
   it('finds pinned space and growth against the previous snapshot', () => {

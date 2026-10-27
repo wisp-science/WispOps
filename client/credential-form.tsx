@@ -1,3 +1,4 @@
+import { tr } from './i18n'
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Credential, Host, Snapshot } from './contracts'
@@ -53,35 +54,35 @@ export function CredentialForm({ data, entry, hostName, role = 'login', submit, 
     for (const role of ['login', 'sudo'] as const) {
       const current = host.credentials[role]
       if (row[role] && !own.includes(role)) {
-        if (current) notes.push(`${host.name}：${role === 'login' ? 'SSH' : 'sudo'} 凭据将替换「${current.name}」。`)
-        if (role === 'login' && host.auth !== 'password') notes.push(`${host.name}：SSH 将改用密码登录。`)
+        if (current) notes.push(tr("the.credential.will.replace", { p0: host.name, p1: role === 'login' ? 'SSH' : 'sudo', p2: current.name }))
+        if (role === 'login' && host.auth !== 'password') notes.push(tr("ssh.will.switch.to.password.authentication", { p0: host.name }))
       } else if (!row[role] && own.includes(role)) {
-        notes.push(`${host.name}：解除 ${role === 'login' ? 'SSH' : 'sudo'} 关联${role === 'login' && host.auth === 'password' ? '，改用 SSH 密钥 / 配置' : ''}。`)
+        notes.push(tr("unlink", { p0: host.name, p1: role === 'login' ? 'SSH' : 'sudo', p2: role === 'login' && host.auth === 'password' ? tr("and.use.ssh.keys.configuration") : '' }))
       }
     }
     return notes
   })
   return <form onSubmit={save} autoComplete="off"><fieldset className="wo-form-body" disabled={busy}>
-    <fieldset className="wo-credential-picks"><legend>关联服务器与用途</legend>
-      <p>勾选这条凭据用于哪些服务器，可同时用于 SSH 登录和 sudo。</p>
+    <fieldset className="wo-credential-picks"><legend>{tr("link.servers.and.purposes")}</legend>
+      <p>{tr("choose.the.servers.that.use.this")}</p>
       <div className="wo-credential-pick-list">{[...data.hosts].sort((a, b) => Number(b.name === hostName) - Number(a.name === hostName)).map(host => {
         const row = links.find(r => r.host === host.name)!
         return <div className="wo-credential-pick" key={host.name}>
           <div><strong>{host.name}</strong><small>{host.user ? `${host.user}@` : ''}{host.ssh ?? host.name}</small></div>
-          <label className="wo-check"><input type="checkbox" aria-label={`${host.name} SSH 登录`} checked={row.login} onChange={e => toggle(host.name, 'login', e.target.checked)}/>SSH 登录</label>
-          <label className="wo-check"><input type="checkbox" aria-label={`${host.name} sudo 提权`} checked={row.sudo} onChange={e => toggle(host.name, 'sudo', e.target.checked)}/>sudo 提权</label>
+          <label className="wo-check"><input type="checkbox" aria-label={tr("ssh.login.3", { p0: host.name })} checked={row.login} onChange={e => toggle(host.name, 'login', e.target.checked)}/>{tr("ssh.login")}</label>
+          <label className="wo-check"><input type="checkbox" aria-label={tr("sudo.elevation.2", { p0: host.name })} checked={row.sudo} onChange={e => toggle(host.name, 'sudo', e.target.checked)}/>{tr("sudo.elevation")}</label>
         </div>
       })}</div>
-      {!data.hosts.length && <p>还没有服务器。<button type="button" onClick={addHost}>添加服务器</button></p>}
-      <small>{selected.length ? `已选择 ${selected.length} 台服务器` : entry ? '未选择服务器，保存后将解除此凭据的全部关联。' : '请选择至少一台服务器及用途。'}</small>
+      {!data.hosts.length && <p>{tr("no.servers.yet")}<button type="button" onClick={addHost}>{tr("add.server")}</button></p>}
+      <small>{selected.length ? tr("servers.selected", { p0: selected.length }) : entry ? tr("no.servers.selected.saving.will.remove") : tr("select.at.least.one.server.and")}</small>
     </fieldset>
     {!!changes.length && <div className="wo-association-changes" role="status">{changes.map(note => <p key={note}>{note}</p>)}</div>}
-    <div className="wo-form-grid"><label className="wo-field"><span>凭据名称</span><input name="name" value={name} onChange={e => { nameTouched.current = true; setName(e.target.value) }} readOnly={!!entry} required maxLength={100}/></label>
-    <label className="wo-field"><span>用户名（备注）</span><input name="username" value={username} onChange={e => { usernameTouched.current = true; setUsername(e.target.value) }} autoComplete="off"/></label></div>
-    <label className="wo-field"><span>{entry ? '新密码（留空则保留原密码）' : '密码'}</span><input ref={password} type="password" name="password" required={!entry} autoComplete="new-password" maxLength={16384}/></label>
-    <label className="wo-field"><span>备注</span><textarea name="note" defaultValue={entry?.note} rows={2}/></label>
-    <label className="wo-check"><input type="checkbox" name="agent" defaultChecked={entry?.agent ?? true}/>允许运维工具及例行任务使用此凭据</label>
-    <p className="wo-muted">连接用户名以服务器配置为准；sudo 仍遵循服务器及任务授权。已保存的密码不会返回页面或模型。</p>
-    <div className="wo-form-actions"><button className="wo-primary" disabled={busy || (!entry && !selected.length)}>{busy ? '加密保存中…' : '加密保存并更新关联'}</button></div>
+    <div className="wo-form-grid"><label className="wo-field"><span>{tr("credential.name")}</span><input name="name" value={name} onChange={e => { nameTouched.current = true; setName(e.target.value) }} readOnly={!!entry} required maxLength={100}/></label>
+    <label className="wo-field"><span>{tr("username.note")}</span><input name="username" value={username} onChange={e => { usernameTouched.current = true; setUsername(e.target.value) }} autoComplete="off"/></label></div>
+    <label className="wo-field"><span>{entry ? tr("new.password.leave.blank.to.keep") : tr("password")}</span><input ref={password} type="password" name="password" required={!entry} autoComplete="new-password" maxLength={16384}/></label>
+    <label className="wo-field"><span>{tr("notes")}</span><textarea name="note" defaultValue={entry?.note} rows={2}/></label>
+    <label className="wo-check"><input type="checkbox" name="agent" defaultChecked={entry?.agent ?? true}/>{tr("allow.operations.tools.and.recurring.tasks")}</label>
+    <p className="wo-muted">{tr("connections.use.the.server.s.username")}</p>
+    <div className="wo-form-actions"><button className="wo-primary" disabled={busy || (!entry && !selected.length)}>{busy ? tr("encrypting.and.saving") : tr("encrypt.save.and.update.bindings")}</button></div>
   </fieldset></form>
 }

@@ -58,6 +58,9 @@ export interface TaskSchedule {
 /** A recurring job for some servers, e.g. a morning report. */
 export interface TaskSpec {
     name: string;
+    /** Human-configured channel names; credentials never enter task records. */
+    notify?: string[];
+    notifyOnlyProblems?: boolean;
     /** Origin template; execution uses the saved copy, never a live template. */
     template?: string;
     description?: string;
@@ -155,6 +158,7 @@ export interface Config {
     hosts: HostSpec[];
     groups: Record<string, GroupSpec>;
     tasks: TaskSpec[];
+    notifications: Record<string, NotificationChannel>;
     /** Default IANA zone for task schedules. */
     timeZone: string;
     /** Keep the agent from editing the human-managed inventory and state. */
@@ -178,6 +182,13 @@ export interface Config {
     thresholds: ThresholdsSpec;
     /** Inspection history, disk snapshots, and the audit log. */
     dataDir: string;
+}
+export interface NotificationChannel {
+    kind: 'wecom' | 'dingtalk' | 'feishu' | 'webhook';
+    /** Environment variable holding the HTTPS endpoint, including its token. */
+    urlEnv: string;
+    /** Optional DingTalk/Feishu signing secret, or generic webhook bearer token. */
+    secretEnv?: string;
 }
 export declare const Task: z<TaskSpec>;
 export declare const Config: z<Config>;

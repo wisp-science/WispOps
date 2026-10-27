@@ -32,6 +32,8 @@ export interface ExecOptions {
     readonly risk: RiskLevel;
     readonly authorization: Authorization;
     readonly reason?: string;
+    /** Exact approved plan for managed changes, instead of the generated wrapper. */
+    readonly auditCommand?: string;
 }
 export interface HostInspectionResult {
     readonly host: string;

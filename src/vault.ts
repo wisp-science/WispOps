@@ -12,6 +12,7 @@ export interface Credential { name: string; username: string; note: string; agen
 interface SealedCredential extends Credential { secret: string }
 interface VaultFile { version: 1; entries: SealedCredential[] }
 export interface CredentialInput extends Credential { password?: string }
+export interface PortableCredential extends Credential { password: string }
 
 // Secrets travel on stdin, never in process arguments or error messages.
 function run(file: string, args: string[], input = ''): Promise<Buffer> {
@@ -96,6 +97,37 @@ export class LocalVault implements SecretProvider {
   }
   async remove(name: string, revision: string): Promise<void> {
     await this.state.change(revision, value => ({ ...value, entries: value.entries.filter(e => e.name !== name) }))
+  }
+  /** Owner-only backup path; never expose its return value through RPC or model tools. */
+  async exportForSync(): Promise<{ revision: string; entries: PortableCredential[] }> {
+    const { revision, value } = await this.state.read()
+    if (!value.entries.length) return { revision, entries: [] }
+    const key = await this.keyProvider(this.dir, false)
+    try {
+      return { revision, entries: value.entries.map(({ secret, ...entry }) => {
+        const data = Buffer.from(secret, 'base64')
+        const plain = xchacha20poly1305(key, data.subarray(0, 24), Buffer.from(entry.name)).decrypt(data.subarray(24))
+        try { return { ...entry, password: Buffer.from(plain).toString('utf8') } } finally { plain.fill(0) }
+      }) }
+    } finally { key.fill(0) }
+  }
+  async replaceFromSync(entries: PortableCredential[], revision: string, participate: (commit: () => Promise<void>) => Promise<void>): Promise<void> {
+    const names = new Set<string>()
+    for (const e of entries) {
+      if (!e || typeof e.name !== 'string' || !e.name || e.name.length > 100 || names.has(e.name) || /[\r\n\0]/.test(e.name) || typeof e.password !== 'string' || !e.password || e.password.length > 16384 || /[\r\n\0]/.test(e.password) || typeof e.username !== 'string' || typeof e.note !== 'string' || typeof e.agent !== 'boolean') throw new Error('Invalid sync credential')
+      names.add(e.name)
+    }
+    await this.state.change(revision, async old => {
+      if (!entries.length) return { version: 1, entries: [] }
+      const key = await this.keyProvider(this.dir, old.entries.length === 0)
+      try {
+        return { version: 1, entries: entries.map(({ password, ...entry }) => {
+          const nonce = randomBytes(24), plain = Buffer.from(password)
+          try { return { ...entry, secret: Buffer.concat([nonce, xchacha20poly1305(key, nonce, Buffer.from(entry.name)).encrypt(plain)]).toString('base64') } }
+          finally { plain.fill(0) }
+        }) }
+      } finally { key.fill(0) }
+    }, participate)
   }
   async password(reference: string | undefined): Promise<string | undefined> {
     if (!reference) return undefined

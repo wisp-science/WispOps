@@ -111,5 +111,5 @@
 .wo-dialog .wo-template-picker button{text-align:left;white-space:normal;padding:10px 12px}
 .wo-template-picker strong,.wo-template-picker small{display:block}
 .wo-template-picker small{margin-top:3px}
-@container(max-width:430px){.wo-tabs{gap:12px;overflow-x:auto;overflow-y:hidden}.wo-tabs button{font-size:12px;flex-shrink:0}.wo-tabs button span{display:none}}
+@container(max-width:430px){.wo-tabs{gap:10px 14px;flex-wrap:wrap;justify-content:flex-start;overflow:visible}.wo-tabs button{font-size:12px;flex-shrink:0}.wo-tabs button span{display:none}}
 @container(min-width:500px){.wo-library-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

@@ -66,3 +66,7 @@ tasks:
 - `/ops-run <任务>` 立即执行一次，`/ops-tasks` 查看任务，`/ops-unschedule` 取消调度。
 - 每次运行都会保存，下一次汇报会说明“与上次相比的变化”。
 - 无人值守时没人能点审批：任务里写 `sudo: true`，表示你预先授权这个任务的**只读**采集器使用 sudo（主机策略写了 `sudo: deny` 时仍然拒绝）。定时任务只采集和汇报，不做任何变更。
+
+## 通知配置
+
+`notifications` 声明人工管理的命名渠道，任务通过 `notify` 选择，`notifyOnlyProblems` 控制仅异常投递。完整示例及密钥环境变量见[通知配置](./operations.md#外部通知)。

@@ -109,6 +109,7 @@ export interface RunningJob {
     readonly id: string;
     readonly user: string;
     readonly workdir: string;
+    readonly scheduler?: 'slurm' | 'pbs' | 'lsf';
 }
 /** Parse the sections printed by {@link holdersScript}. */
 export declare function parseHolders(s: ReadonlyMap<string, readonly string[]>): {
