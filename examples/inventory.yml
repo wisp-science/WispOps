@@ -1,0 +1,92 @@
+# ~/.dsh-wisp-ops/inventory.yml — edits apply on the next call, no restart needed.
+#
+# Selectors used by tools and /ops-allow:
+#   web-01            one host            @gpu          a group
+#   tag:env=prod      a tag               gpu-*         a glob
+#   all !@prod        everything except a group
+#
+# Permissions per capability: allow | ask | deny
+#   change       anything that is not read-only
+#   sudo         running as root (sudo=true, or sudo/su in the command)
+#   destructive  deletions, formatting, reboots, prunes, ...
+# Precedence: host policy > the strictest of its groups > defaultPolicy (all "ask").
+# deny is absolute: approvals and /ops-allow never override it.
+
+groups:
+  gpu:
+    description: Lab GPU servers
+    policy: { change: ask, sudo: ask, destructive: ask }
+  prod:
+    description: Production web
+    policy: { destructive: deny }
+  lab:
+    description: Personal test boxes
+    policy: { change: allow, sudo: allow }
+
+hosts:
+  - name: gpu-01
+    ssh: gpu-01              # an ~/.ssh/config alias keeps keys, ProxyJump, etc. in one place
+    groups: [gpu]
+    tags: { site: bj, owner: lab }
+    sudoSecret: gpu-root     # WispTerm Password Store entry used for sudo (secrets.provider: wispterm)
+
+  - name: gpu-02
+    ssh: alice@10.0.0.12
+    proxyJump: bastion
+    groups: [gpu]
+    sudoSecret: gpu-root
+
+  - name: web-01
+    ssh: deploy@web-01.example.com
+    port: 2222
+    identityFile: ~/.ssh/id_deploy
+    groups: [prod]
+    tags: { env: prod }
+
+  - name: nas
+    ssh: admin@192.168.1.20
+    auth: password           # password login answered from the Password Store (OpenSSH >= 8.4)
+    loginSecret: nas-admin
+    sudoSecret: nas-admin
+    groups: [lab]
+
+  - name: server-a
+    ssh: server-a
+  - name: server-b
+    ssh: server-b
+    groups: [lab]
+  - name: server-c
+    ssh: server-c
+
+# Per-server recurring tasks. Schedule them in a Web session with /ops-schedule all;
+# run one now with /ops-run <name>; list with /ops-tasks.
+# Playbooks: inspect | disk | new-files | security | custom (custom needs an instruction).
+# Unattended runs cannot answer approval prompts: `sudo: true` here pre-authorizes sudo
+# for the task's built-in read-only collector (a host policy `sudo: deny` still wins).
+tasks:
+  - name: a-mcp-morning
+    targets: server-a
+    playbook: custom
+    instruction: 观察 MCP 服务的调度情况（任务排队、失败、超时、资源占用），每天早上给我汇报
+    schedule: { daily: "08:30", timeZone: Asia/Shanghai }
+
+  - name: b-new-files
+    targets: server-b
+    playbook: new-files
+    paths: [/data, /home]
+    days: 1
+    sudo: true
+    instruction: 分析昨天新增的文件，重点是测序数据和分析中间文件，给出空间清理建议
+    schedule: { daily: "09:00" }
+
+  - name: c-security
+    targets: server-c
+    playbook: security
+    hours: 24
+    sudo: true
+    schedule: { daily: "08:00", weekdays: [1, 2, 3, 4, 5] }
+
+  - name: fleet-weekly
+    targets: all
+    playbook: inspect
+    schedule: { cron: "0 9 * * 1" }

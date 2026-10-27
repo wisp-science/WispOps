@@ -1,0 +1,26 @@
+#!/bin/sh
+# Stand-in for sudo: `-S -v` validates the stdin password against
+# FAKE_SUDO_PASSWORD and caches it in FAKE_SUDO_STATE; `-n` runs the command
+# when cached or FAKE_SUDO_NOPASSWD is set.
+mode=run
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v) mode=validate ;;
+    -p|-u) shift ;;
+    --) shift; break ;;
+    -*) ;;
+    *) break ;;
+  esac
+  shift
+done
+if [ "$mode" = validate ]; then
+  if [ -n "$FAKE_SUDO_NOPASSWD" ]; then exit 0; fi
+  IFS= read -r pw
+  if [ "$pw" = "$FAKE_SUDO_PASSWORD" ]; then : > "$FAKE_SUDO_STATE"; exit 0; fi
+  exit 1
+fi
+if [ -n "$FAKE_SUDO_NOPASSWD" ] || [ -f "$FAKE_SUDO_STATE" ]; then
+  FAKE_ROOT=1 exec "$@"
+fi
+echo "sudo: a password is required" >&2
+exit 1

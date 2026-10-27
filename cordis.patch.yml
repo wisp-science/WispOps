@@ -1,0 +1,11 @@
+# dsh-wisp-ops bundle layer. Override this row in your profile's
+# cordis.patch.yml (same id) to change any setting; restate every key you need,
+# because a patch replaces the whole config value.
+- insert:
+    - id: wisp-ops
+      name: dsh-wisp-ops
+      config:
+        inventoryFile: ~/.dsh-wisp-ops/inventory.yml
+        secrets:
+          provider: none
+          importWisptermHosts: false

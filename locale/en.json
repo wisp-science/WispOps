@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WispOps — fleet server operations",
+    "description": "Manage many servers from DeepSeek Harness: inventory and groups, fleet health inspection with trends, disk-full diagnosis, and fleet commands over OpenSSH. Change, sudo and destructive actions follow per-host policy, time-boxed /ops-allow grants, or a one-shot approval; sudo passwords come from the WispTerm Password Store and never reach the model."
+  }
+}
