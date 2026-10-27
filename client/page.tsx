@@ -89,7 +89,7 @@ export function OpsPage(props: PageProps) {
     </article>
   }
   return <main className={`wo-root${props.sidebar ? ' wo-sidebar' : ''}`}><style>{css}</style><div className="wo-content">
-    <header className="wo-header"><div className="wo-heading"><span className="wo-logo" aria-hidden="true">W</span><div><div className="wo-heading-title"><h1>服务器运维</h1><span className="wo-version">0.5.0</span></div><p>服务器、密码库和例行任务，在一处管理。</p></div></div><button className="wo-refresh" disabled={busy || loading} onClick={() => void load()}>{loading ? '加载中…' : '↻ 刷新'}</button></header>
+    <header className="wo-header"><div className="wo-heading"><span className="wo-logo" aria-hidden="true">W</span><div><div className="wo-heading-title"><h1>服务器运维</h1><span className="wo-version">0.5.1</span></div><p>服务器、密码库和例行任务，在一处管理。</p></div></div><button className="wo-refresh" disabled={busy || loading} onClick={() => void load()}>{loading ? '加载中…' : '↻ 刷新'}</button></header>
     {error && !modal && <div role="alert" className="wo-alert">{error}<button onClick={() => void load()} disabled={loading}>重试</button></div>}
     {notice && <div role="status" className="wo-notice">{notice}</div>}
     {data?.warnings.map(w => <div className="wo-alert" key={w}>{w}</div>)}

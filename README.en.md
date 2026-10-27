@@ -4,14 +4,37 @@
 
 Multi-host server operations for DeepSeek Harness, with a Desktop/Web management panel, an independent encrypted credential vault, and recurring tasks linked to servers. It also covers fleet inspection, disk diagnosis, security triage, and commands over OpenSSH. Change, sudo, and destructive actions are authorized per host. WispTerm is optional; passwords are passed directly to SSH and never returned to the page or model.
 
-## Install from the Harness plugin page
+## Install
 
-1. Open **Plugins → Add plugin** and paste `https://github.com/wisp-science/WispOps`.
-2. Choose the official npm registry or the mainland China mirror under **Installation source**, depending on your network. This selects the npm dependency registry; GitHub access is still required.
-3. Click **Install** and ensure the plugin is enabled. If pnpm asks to approve the package build script, follow its instructions and retry.
-4. Restart Harness. Open **服务器运维** from the left sidebar, or from a conversation's right-side Start page.
+Requirements: DeepSeek Harness `>=0.2.1-rc.3 <0.3.0` and network access to GitHub. No npm-published package, no WispTerm, and no local build are needed; the repository ships the prebuilt `lib/`.
 
-Use the GitHub repository URL, not the npm registry URL, in the plugin field. This does not require a package published on npm or a WispTerm installation. Local source installations require `npm run build` before restarting.
+### From the Harness plugin page (recommended)
+
+1. Open DeepSeek Harness and click **Plugins** in the left sidebar.
+2. Click **+ Add plugin** and paste the GitHub repository URL:
+
+   ```text
+   https://github.com/wisp-science/WispOps
+   ```
+
+   Enter only this URL, not an npm package name or a registry URL.
+3. Under **Installation source**, pick the **mainland China mirror** (`registry.npmmirror.com`) on mainland networks, otherwise the **official npm registry** (`registry.npmjs.org`). Use **Custom** only for your own registry. This only controls where dependencies such as `yaml` are downloaded; the plugin itself still comes from GitHub.
+4. Click **Install**, wait for it to finish, and confirm **WispOps (dsh-wisp-ops)** is enabled in the plugin list.
+5. **Quit and reopen Harness**; the panel loads only after a restart.
+6. Open **服务器运维** (Server operations) from the left sidebar, or from a conversation's right-side **Start** page.
+
+### Upgrading
+
+WispOps is not an on-demand official plugin, so the plugin page shows no **Update** button. Uninstall WispOps on the **Plugins** page (including a previous local `link:` installation), install again from the GitHub URL, and restart Harness. Servers, the vault, and recurring tasks live in `~/.dsh-wisp-ops/` by default and are not removed by uninstalling.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` for `dsh-wisp-ops` | 0.5.0 and earlier built on install from GitHub. 0.5.1 ships prebuilt files and no longer triggers it. Uninstall the old version and install again from the GitHub URL. |
+| Installed, but no **服务器运维** entry | Harness was not restarted, or the plugin is disabled. Enable it and fully restart. |
+| Dependency download is slow or times out | Switch **Installation source** and retry. |
+| Cannot reach `github.com` / `codeload.github.com` | Clone the repository another way and use the local install below. |
 
 ## Reusable task library (0.5)
 
@@ -99,13 +122,22 @@ Six bundled skills ship with the plugin: `wisp-disk-full`, `wisp-omics-cleanup`,
 
 The agent cannot edit the inventory, the data directory, or the WispTerm store, through either file tools or bash.
 
-## Install
+## Command-line and local installs
 
 ```bash
-dsh plugin --profile web add github:wisp-science/WispOps
+dsh plugin --profile desktop add github:wisp-science/WispOps
 ```
 
-Restart Harness and add servers in the management panel, or create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). For a local linked installation, run `npm run build` and restart Harness to load the new browser entry. Configuration keys are listed in the Chinese README and in `src/config.ts`.
+`desktop` is the usual desktop profile; Web installs usually use `web`. Restart Harness afterwards.
+
+For development, link a local checkout:
+
+```bash
+npm install && npm run build
+dsh plugin --profile desktop add "$(pwd)"
+```
+
+A linked install needs `npm run build` and a Harness restart after each source change. Add servers in the management panel, or create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). Configuration keys are listed in the Chinese README and in `src/config.ts`.
 
 ## Limits
 

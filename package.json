@@ -1,6 +1,6 @@
 {
   "name": "dsh-wisp-ops",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Server management, an independent encrypted credential vault, and per-server recurring operations for DeepSeek Harness.",
   "keywords": [
     "dsh",
@@ -77,7 +77,6 @@
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
     "test": "vitest run",
-    "prepare": "npm run build",
     "prepack": "npm run build"
   },
   "dependencies": {
