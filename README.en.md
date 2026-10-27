@@ -50,7 +50,7 @@ Schedules use the native Harness automation service and require Harness to remai
 
 After upgrading, rebuild and restart Harness. Open **服务器运维** (Server operations) from the right sidebar’s Start page to manage servers beside the conversation. The left sidebar and WispOps plugin details also open the full panel. Recurring tasks opened in the right sidebar default to the current conversation for reports.
 
-- **Servers:** view the inventory, add hosts and inspect credentials and tasks. Create credentials directly from the SSH or sudo row with the host and purpose preselected, or associate existing entries through Manage bindings.
+- **Servers:** view the inventory, add hosts and inspect credentials and tasks. The SSH login and sudo rows each link one vault credential (or SSH keys / passwordless sudo) and can test it before saving; passwords themselves are created in the Vault tab.
 - **Vault:** select one or more servers and SSH / sudo purposes when creating a credential; saving also applies those associations. Cards show each host and purpose and can be searched by host. Editing can change associations while preserving the password when left blank. New SSH associations switch the host to password authentication; the form previews replacements and authentication changes. Sudo-only associations preserve SSH authentication and permissions. Usernames are metadata; connections use the host configuration. A credential cannot be deleted while a server references it.
 - **Recurring tasks:** select one or several servers, choose a playbook, report instruction, schedule and timezone, then save. Select the receiving session and enable scheduling. The task also appears in Harness's native Automation tasks page. Stop scheduling before editing or deleting a task.
 

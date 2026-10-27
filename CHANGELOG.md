@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Make the credential dialog's password section clearer: a show/hide toggle, a list of the selected servers and accounts the password will be used for, a warning when those servers log in as different users, a combined note for servers switching from SSH keys to the password, and a hint that the username field is a note only.
+- Separate passwords from server bindings in the management panel: the vault form only stores a credential (with a show/hide password toggle and a note-only username hint), and each server's SSH login and sudo rows link, change or clear one vault credential on their own.
+- Add an owner-only `testBinding` action and "Test SSH login" / "Test sudo" buttons in the binding dialog that connect with the chosen credential and report the login identity, sudo availability or the failure reason without saving.
 
 ## 0.7.1 — 2026-10-27
 

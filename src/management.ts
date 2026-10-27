@@ -5,6 +5,7 @@ import { Config, Task, PLAYBOOKS } from './config.ts'
 import type { Playbook } from './config.ts'
 import type { HostSpec } from './config.ts'
 import { Inventory, expandHome } from './inventory.ts'
+import type { Host } from './inventory.ts'
 import { managedStore } from './managed.ts'
 import type { ManagedState, CredentialBinding } from './managed.ts'
 import type { OpsService } from './service.ts'
@@ -181,6 +182,34 @@ export class OpsManager {
         Object.defineProperty(state.bindings, name, { value: binding, enumerable: true, writable: true, configurable: true })
       })
       return { message: '服务器凭据关联已保存。' }
+    }
+    if (action === 'testBinding') {
+      // Owner-initiated check of one purpose on one server, before or after linking; never a model tool.
+      const name = string(request, 'host')
+      const host = this.service.inventory.hosts.get(name)
+      if (!host) throw new Error('服务器不存在。')
+      const role = request.role
+      if (role !== 'login' && role !== 'sudo') throw new Error('请选择要测试的用途。')
+      const ref = request.ref === undefined ? '' : request.ref
+      if (typeof ref !== 'string') throw new Error('凭据引用格式不正确。')
+      const field = role === 'login' ? 'loginSecret' : 'sudoSecret'
+      if (ref !== '' && ref !== host[field] && (!ref.startsWith('local:') || !(await this.vault.list()).entries.some(e => `local:${e.name}` === ref))) throw new Error('所选凭据不存在。')
+      const candidate: Host = role === 'login'
+        ? { ...host, auth: ref ? 'password' : 'key', ...(ref ? { loginSecret: ref } : {}) }
+        : { ...host, ...(ref ? { sudoSecret: ref } : {}) }
+      if (role === 'login' && !ref) delete (candidate as { loginSecret?: string }).loginSecret
+      if (role === 'sudo' && !ref) delete (candidate as { sudoSecret?: string }).sudoSecret
+      const [result] = await this.service.execute([candidate], 'id -un', {
+        sudo: role === 'sudo',
+        timeoutMs: this.service.config.ssh.connectTimeoutSec * 1000 + 15_000,
+        tool: 'wispOps:testBinding',
+        risk: 'read',
+        authorization: 'read-only',
+        reason: `panel test of ${role} binding`,
+      })
+      if (!result) throw new Error('测试未返回结果。')
+      // stderr may carry ssh diagnostics but never the password; keep it short for the panel.
+      return { status: result.status, user: result.status === 'ok' ? result.stdout.trim().split('\n')[0] ?? '' : '', error: result.status === 'ok' ? '' : result.stderr.trim().slice(0, 300) }
     }
     if (action === 'addHost') {
       const input = object(request.host)

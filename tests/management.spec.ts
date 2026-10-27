@@ -75,6 +75,29 @@ describe('credentials associated with servers', () => {
     expect(service.inventory.hosts.get('b')?.sudoSecret).toBeUndefined()
     await manager.dispatch({ action: 'deleteCredential', name: 'login', revision: (await vault.list()).revision })
   })
+  it('tests one purpose of one server with a candidate credential without saving it', async () => {
+    await saveCredential()
+    const execute = vi.spyOn(service, 'execute').mockResolvedValue([{ host: 'a', status: 'ok', exitCode: 0, stdout: 'root\n', stderr: '', truncated: false, durationMs: 5 }])
+    expect(await manager.dispatch({ action: 'testBinding', host: 'a', role: 'login', ref: 'local:login' })).toEqual({ status: 'ok', user: 'root', error: '' })
+    expect(execute.mock.calls[0]![0][0]).toMatchObject({ name: 'a', auth: 'password', loginSecret: 'local:login' })
+    expect(execute.mock.calls[0]![2]).toMatchObject({ sudo: false, authorization: 'read-only', tool: 'wispOps:testBinding' })
+    await manager.dispatch({ action: 'testBinding', host: 'a', role: 'sudo', ref: 'local:login' })
+    expect(execute.mock.calls[1]![0][0]).toMatchObject({ name: 'a', sudoSecret: 'local:login' })
+    expect(execute.mock.calls[1]![0][0].auth).not.toBe('password')
+    expect(execute.mock.calls[1]![0][0].loginSecret).toBeUndefined()
+    expect(execute.mock.calls[1]![2]).toMatchObject({ sudo: true })
+    execute.mockResolvedValueOnce([{ host: 'a', status: 'sudo-required', exitCode: 97, stdout: '', stderr: 'sudo: a password is required', truncated: false, durationMs: 5 }])
+    expect(await manager.dispatch({ action: 'testBinding', host: 'a', role: 'sudo', ref: '' })).toEqual({ status: 'sudo-required', user: '', error: 'sudo: a password is required' })
+    expect(execute.mock.calls[2]![0][0].sudoSecret).toBeUndefined()
+    // Nothing was linked by testing, and bad targets are refused before connecting.
+    expect(service.inventory.hosts.get('a')?.auth).not.toBe('password')
+    expect(service.inventory.hosts.get('a')?.loginSecret).toBeUndefined()
+    for (const request of [{ host: 'zz', role: 'login', ref: '' }, { host: 'a', role: 'root', ref: '' }, { host: 'a', role: 'login', ref: 'local:missing' }, { host: 'a', role: 'login', ref: 7 }]) {
+      await expect(manager.dispatch({ action: 'testBinding', ...request })).rejects.toThrow()
+    }
+    expect(execute).toHaveBeenCalledTimes(3)
+    execute.mockRestore()
+  })
   it('retains dormant login references and recognizes unprefixed local references without rewriting YAML', async () => {
     const yaml = 'hosts:\n  - name: c\n    auth: key\n    loginSecret: login\n    sudoSecret: login\n'
     await writeFile(join(dir, 'inventory.yml'), yaml)
