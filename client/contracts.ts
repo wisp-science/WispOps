@@ -12,6 +12,12 @@ export interface Task {
   schedule?: { daily?: string; weekdays?: number[]; cron?: string; everyMinutes?: number; timeZone?: string };
   scheduled: { id: string; sessionId: string; scheduledAt: string }[];
 }
+export type TaskDefinition = Omit<Task, 'hosts' | 'editable' | 'scheduled'>
+export interface TaskDraft {
+  task: TaskDefinition
+  evidence: { host: string; summary: string; probeAt?: string; inspectionAt?: string }[]
+  warnings: string[]
+}
 export interface Snapshot {
   revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; tasks: Task[];
   timeZone: string; schedulerAvailable: boolean; warnings: string[];

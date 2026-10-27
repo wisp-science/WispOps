@@ -1,7 +1,8 @@
 /** Owner-only management API. Never registered as model tools. */
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { Config, Task } from './config.ts'
+import { Config, Task, PLAYBOOKS } from './config.ts'
+import type { Playbook } from './config.ts'
 import type { HostSpec } from './config.ts'
 import { Inventory, expandHome } from './inventory.ts'
 import { managedStore } from './managed.ts'
@@ -10,6 +11,7 @@ import type { OpsService } from './service.ts'
 import { scheduleRequest, SCHEDULE_TITLE_PREFIX } from './tasks.ts'
 import type { CredentialInput, LocalVault } from './vault.ts'
 import { listVault, wisptermConfigDir } from './wispterm.ts'
+import { draftTask } from './task-draft.ts'
 
 export interface ScheduledRecord { id: string; title: string; sessionId: string; scheduledAt: string; status: string }
 export interface Scheduler {
@@ -57,6 +59,22 @@ export class OpsManager {
     await this.service.refresh()
     const action = string(request, 'action')
     if (action === 'snapshot') return this.snapshot()
+    if (action === 'draftTask') {
+      if (!Array.isArray(request.hosts) || !request.hosts.length || request.hosts.some(name => typeof name !== 'string' || !this.service.inventory.hosts.has(name))) throw new Error('请选择有效的服务器。')
+      const hosts = this.service.select([...new Set(request.hosts as string[])].join(','))
+      if (!PLAYBOOKS.includes(request.playbook as Playbook)) throw new Error('请选择检查内容。')
+      if (request.refreshProbe !== undefined && typeof request.refreshProbe !== 'boolean') throw new Error('探测选项无效。')
+      const warnings: string[] = []
+      if (request.refreshProbe === true) {
+        const results = await this.service.probe(hosts, { tool: 'wispOps:draftTask' })
+        for (const result of results) if (!result.probe) warnings.push(`${result.host} 本次探测未完成（${result.status}），使用已有记录或通用规则。`)
+      }
+      const probes = await this.service.store.probes()
+      const observations = await Promise.all(hosts.map(async host => ({ host, probe: probes[host.name], history: await this.service.store.lastHealthy(host.name) })))
+      const draft = draftTask(observations, request.playbook as Playbook, this.service.config, new Set(this.service.inventory.tasks.keys()))
+      draft.warnings.unshift(...warnings)
+      return draft
+    }
     if (action === 'saveCredential') {
       const input = object(request.credential) as unknown as CredentialInput
       const exists = (await this.vault.list()).entries.some(e => e.name === input.name)

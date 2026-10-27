@@ -14,6 +14,12 @@ After upgrading, rebuild and restart Harness. Open **服务器运维** (Server o
 
 Panel data is stored atomically in `dataDir/managed.json`; the existing YAML and its comments remain intact. YAML tasks remain editable in their source. Panel tasks bind exact host names, and duplicate enable requests do not create duplicate schedules within one session. Without the Schedule service, definitions can still be saved and run through `/ops-run`. Harness must remain running for delivery. Management endpoints are owner-only and are not model tools.
 
+## Automatic inspection rules (0.3)
+
+In the task editor, select hosts and a playbook, then click **自动生成巡查规则** (Generate inspection rules). The local rule generator fills a unique name, title, reporting instructions and a daily 08:30 schedule in the configured timezone. It uses stored capability probes, the latest successful inspection and configured thresholds, adding GPU, scheduler and container checks only when observed. Missing or stale observations are disclosed. Existing task identities and schedules are preserved when regenerating.
+
+Generation uses cached records by default. An optional read-only SSH probe refreshes capabilities; failures return a draft with warnings. New-file scans use confirmed shared data mounts or fall back to `/var/log`. Drafts do not save, schedule or authorize sudo automatically. This generation step does not call an LLM; Harness still writes the report when a task runs.
+
 ## Tools and commands
 
 | Model tool | Purpose |

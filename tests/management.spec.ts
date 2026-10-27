@@ -81,6 +81,32 @@ describe('independent vault', () => {
 })
 
 describe('server and task management', () => {
+  it('generates editable drafts without connecting, writing definitions or enabling schedules', async () => {
+    const probe = vi.spyOn(service, 'probe')
+    const before = await revision()
+    const result = await manager.dispatch({ action: 'draftTask', hosts: ['a', 'b', 'a'], playbook: 'inspect' }) as any
+    expect(result.task.targets).toBe('a,b')
+    expect(result.task.sudo).toBe(false)
+    expect(result.warnings).toHaveLength(2)
+    expect(probe).not.toHaveBeenCalled()
+    expect(key).not.toHaveBeenCalled()
+    expect(await revision()).toBe(before)
+    expect(service.inventory.tasks.size).toBe(0)
+    expect(scheduler.create).not.toHaveBeenCalled()
+    await manager.dispatch({ action: 'saveTask', task: result.task, revision: before })
+    expect(service.inventory.tasks.get(result.task.name)?.instruction).toContain('健康检查')
+    expect(scheduler.create).not.toHaveBeenCalled()
+  })
+  it('validates draft selections and reports failed optional probes without discarding the draft', async () => {
+    for (const hosts of [[], ['all'], ['absent'], ['a', 7]]) await expect(manager.dispatch({ action: 'draftTask', hosts, playbook: 'inspect' })).rejects.toThrow('服务器')
+    await expect(manager.dispatch({ action: 'draftTask', hosts: ['a'], playbook: 'unknown' })).rejects.toThrow('检查内容')
+    await expect(manager.dispatch({ action: 'draftTask', hosts: ['a'], playbook: 'inspect', refreshProbe: 'yes' })).rejects.toThrow('探测选项')
+    const probe = vi.spyOn(service, 'probe').mockResolvedValueOnce([{ host: 'a', status: 'auth-failed' }])
+    const result = await manager.dispatch({ action: 'draftTask', hosts: ['a'], playbook: 'security', refreshProbe: true }) as any
+    expect(probe).toHaveBeenCalledWith([service.inventory.hosts.get('a')], { tool: 'wispOps:draftTask' })
+    expect(result.warnings.join(' ')).toContain('本次探测未完成')
+    expect(result.task).toMatchObject({ targets: 'a', playbook: 'security', hours: 24, sudo: false })
+  })
   it('persists bindings across reloads, allows clearing them, and prevents deleting referenced secrets', async () => {
     await saveCredential()
     await manager.dispatch({ action: 'bindCredentials', host: 'a', binding: { auth: 'password', loginSecret: 'local:login', sudoSecret: 'local:login' }, revision: await revision() })
