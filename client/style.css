@@ -273,3 +273,4 @@
 @container(max-width:700px){.wo-sync{margin-top:20px}.wo-sync-grid{grid-template-columns:minmax(0,1fr);gap:14px}.wo-sync-card{padding:18px}.wo-sync-card-heading{margin-bottom:18px}.wo-sync-transfer>div{padding:18px}}
 @container(max-width:430px){.wo-sync-card{padding:16px}.wo-sync-transfer{grid-template-columns:minmax(0,1fr)}.wo-sync-transfer>div{padding:16px}.wo-sync-transfer>div+div{border-left:0;border-top:1px solid var(--wo-line)}.wo-sync-transfer button,.wo-sync-confirm button{width:100%}.wo-sync-cloud-picker{flex-direction:column;align-items:stretch}.wo-sync-scope{overflow-wrap:anywhere}}
 @media(prefers-color-scheme:dark){.wo-root .wo-sync-replace-note{background:#443728;color:#dbb980}}
+.wo-manual-hint{align-self:center;margin:0;font-size:11px}

@@ -118,7 +118,7 @@
     "report.session": "Report session",
     "choose.a.session.for.reports": "Choose a session for reports",
     "current.session": "Current session",
-    "reports.arrive.here.when.due.keep": "Reports arrive here when due. Keep Harness running.",
+    "reports.arrive.here.when.due.keep": "\"Run once\" sends the task to this session right away; scheduled runs report here when due. Harness must keep running.",
     "scheduling.is.unavailable.here.use.ops": "Scheduling is unavailable here; use /ops-run to run manually.",
     "no.matching.tasks": "No matching tasks",
     "make.inspections.routine": "Make inspections routine",
@@ -201,7 +201,7 @@
     "external.notifications": "External notifications",
     "add.notification.channels.in.the.plugin": "Add notification channels in the plugin configuration first.",
     "notify.only.on.warnings.failures.or": "Notify only on warnings, failures or incomplete collection",
-    "after.saving.choose.a.report.session": "After saving, choose a report session and enable scheduling.",
+    "after.saving.choose.a.report.session": "After saving, pick a report session on the Recurring tasks tab, then click \"Run once\" for an immediate run or enable the schedule for timed runs.",
     "save.task": "Save task",
     "credential.name": "Credential name",
     "username.note": "Username (note only)",
@@ -387,6 +387,9 @@
     "fleet.inspect.host": "Inspect {p0} now",
     "fleet.inspected": "{p0} inspected: {p1}.",
     "fleet.inspect.failed": "{p0} inspection failed: {p1}",
-    "fleet.findings.count": "{p0} findings"
+    "fleet.findings.count": "{p0} findings",
+    "manual.only": "Manual only (run once)",
+    "no.run.time.only.run.once": "No run time. Run it from the task card with \"Run once\" or with /ops-run.",
+    "run.once": "Run once"
   }
 }

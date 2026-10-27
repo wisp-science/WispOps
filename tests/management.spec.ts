@@ -333,6 +333,29 @@ describe('fleet overview', () => {
   })
 })
 
+describe('run once', () => {
+  it('queues the task prompt into the chosen open session without touching schedules', async () => {
+    await saveTask()
+    const agent = { followup: vi.fn() }
+    const runner = new OpsManager(service, vault, () => scheduler, undefined, id => id === 'live' ? agent : undefined)
+    expect(await runner.dispatch({ action: 'runTaskNow', name: 'daily', sessionId: 'live' })).toMatchObject({ message: expect.stringContaining('daily') })
+    expect(agent.followup).toHaveBeenCalledTimes(1)
+    const message = agent.followup.mock.calls[0]![0] as any
+    expect(JSON.stringify(message)).toContain('daily')
+    expect(message.source).toEqual({ kind: 'user' })
+    expect(scheduler.create).not.toHaveBeenCalled()
+    await expect(runner.dispatch({ action: 'runTaskNow', name: 'daily', sessionId: 'closed' })).rejects.toThrow('未打开')
+    await expect(runner.dispatch({ action: 'runTaskNow', name: 'missing', sessionId: 'live' })).rejects.toThrow('不存在')
+    // Without a host agent registry nothing can be queued.
+    await expect(manager.dispatch({ action: 'runTaskNow', name: 'daily', sessionId: 'live' })).rejects.toThrow('未打开')
+    // A credential that is not allowed for automation blocks the run before anything is queued.
+    await saveCredential()
+    await manager.dispatch({ action: 'bindCredentials', host: 'a', binding: { auth: 'password', loginSecret: 'local:login' }, revision: await revision() })
+    await manager.dispatch({ action: 'saveCredential', credential: { ...credential, password: undefined, agent: false }, edit: true, revision: (await vault.list()).revision })
+    await expect(runner.dispatch({ action: 'runTaskNow', name: 'daily', sessionId: 'live' })).rejects.toThrow('不可用于自动化')
+    expect(agent.followup).toHaveBeenCalledTimes(1)
+  })
+})
 describe('panel inspection', () => {
   it('inspects one server read-only without sudo and reports the outcome', async () => {
     const inspect = vi.spyOn(service, 'inspect').mockResolvedValue({ at: '2026-10-27T08:00:00Z', counts: { ok: 0, info: 0, warn: 1, crit: 0, unreachable: 0 }, hosts: [{ host: 'a', status: 'ok', severity: 'warn', findings: [{ severity: 'warn', code: 'disk-high', message: '/ 91% used' }], durationMs: 12 }] })

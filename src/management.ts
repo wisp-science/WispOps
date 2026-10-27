@@ -3,13 +3,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { Config, Task, PLAYBOOKS } from './config.ts'
 import type { Playbook } from './config.ts'
-import type { HostSpec } from './config.ts'
+import type { HostSpec, TaskSpec } from './config.ts'
 import { Inventory, expandHome } from './inventory.ts'
 import type { Host } from './inventory.ts'
 import { managedStore, validatePolicy } from './managed.ts'
 import type { ManagedState, CredentialBinding } from './managed.ts'
 import type { OpsService } from './service.ts'
-import { scheduleRequest, SCHEDULE_TITLE_PREFIX } from './tasks.ts'
+import { scheduleRequest, SCHEDULE_TITLE_PREFIX, taskPrompt } from './tasks.ts'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { CredentialInput, LocalVault } from './vault.ts'
 import { listVault, wisptermConfigDir } from './wispterm.ts'
 import { draftTask } from './task-draft.ts'
@@ -26,6 +27,8 @@ export interface Scheduler {
   create(sessionId: string, request: Record<string, unknown>): Promise<{ id: string; scheduledAt: string }>
   delete(request: { sessionId: string; id: string }): Promise<{ deleted: boolean }>
 }
+/** Live agents of open sessions; a queued prompt runs the task there exactly like /ops-run. */
+export interface AgentLookup { (sessionId: string): { followup(message: unknown): void } | undefined }
 type Request = Record<string, unknown>
 function string(request: Request, key: string): string {
   if (typeof request[key] !== 'string' || !request[key]) throw new Error(`缺少 ${key}。`)
@@ -42,7 +45,7 @@ export class OpsManager {
   private readonly library
   private pending: Promise<unknown> = Promise.resolve()
   private readonly sync
-  constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates) {
+  constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates, private readonly agents?: AgentLookup) {
     this.state = managedStore(service.config.dataDir)
     this.library = templateStore(service.config.dataDir)
     this.sync = new OpsSync(service, vault, async () => (await this.scheduleRecords()).some(r => r.title.startsWith(SCHEDULE_TITLE_PREFIX) && r.status === 'active'))
@@ -299,20 +302,35 @@ export class OpsManager {
       if (!task?.schedule) throw new Error('请先为任务设置运行时间。')
       // Idempotent enable: a lost response or double click cannot duplicate a reminder.
       if (records.length) return { message: '此任务已在所选会话启用。' }
-      const hosts = this.service.select(task.targets)
-      const entries = (await this.vault.list()).entries
-      for (const host of hosts) {
-        if (task.sudo && host.policy.sudo === 'deny') throw new Error(`${host.name} 禁止 sudo。`)
-        for (const ref of [host.auth === 'password' ? host.loginSecret : undefined, task.sudo ? host.sudoSecret : undefined]) {
-          if (!ref || (!ref.startsWith('local:') && this.service.config.secrets.provider !== 'local')) continue
-          const entry = entries.find(e => e.name === ref.replace(/^local:/, ''))
-          if (!entry?.agent || !entry.hasSecret) throw new Error(`${host.name} 的凭据不可用于自动化，请检查密码库。`)
-        }
-      }
+      await this.assertAutomationReady(task)
       const record = await scheduler.create(sessionId, scheduleRequest(task, this.service.config))
       return { message: `调度已启用，下次运行：${record.scheduledAt}` }
     }
+    if (action === 'runTaskNow') {
+      // One immediate run: queue the same prompt a scheduled delivery would send, into the session the owner picked.
+      const name = string(request, 'name'), sessionId = string(request, 'sessionId')
+      const task = this.service.inventory.tasks.get(name)
+      if (!task) throw new Error('任务不存在，请刷新后重试。')
+      await this.assertAutomationReady(task)
+      const agent = this.agents?.(sessionId)
+      if (!agent) throw new Error('所选会话当前未打开，请先打开该会话再运行。')
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: taskPrompt(task) }], source: { kind: 'user' } }))
+      return { message: `任务「${name}」已发送到所选会话，报告将在该会话中生成。` }
+    }
     throw new Error('未知的管理操作。')
+  }
+  /** Credentials and sudo policy a scheduled or immediate run would need, checked before anything is queued. */
+  private async assertAutomationReady(task: TaskSpec): Promise<void> {
+    const hosts = this.service.select(task.targets)
+    const entries = (await this.vault.list()).entries
+    for (const host of hosts) {
+      if (task.sudo && host.policy.sudo === 'deny') throw new Error(`${host.name} 禁止 sudo。`)
+      for (const ref of [host.auth === 'password' ? host.loginSecret : undefined, task.sudo ? host.sudoSecret : undefined]) {
+        if (!ref || (!ref.startsWith('local:') && this.service.config.secrets.provider !== 'local')) continue
+        const entry = entries.find(e => e.name === ref.replace(/^local:/, ''))
+        if (!entry?.agent || !entry.hasSecret) throw new Error(`${host.name} 的凭据不可用于自动化，请检查密码库。`)
+      }
+    }
   }
   /** Recent inspection history for every host: read-only, bounded, no command output. */
   private async overview(request: Request) {
@@ -350,7 +368,8 @@ export class OpsManagement extends TypertRemoteService {
   constructor(ctx: Context, options: { service: OpsService; vault: LocalVault }) {
     super(ctx, 'wispOps')
     const updates = new OpsUpdates(options.service.config.dataDir, () => ctx.get('pluginManager') as UpdateHost | undefined, () => ctx.get('hmr') !== undefined)
-    this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined, updates)
+    const agents = () => ctx.get('agents') as { get(id: unknown): { followup(message: unknown): void } | undefined } | undefined
+    this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined, updates, id => agents()?.get(id))
     ctx.effect(() => {
       const tick = () => { void updates.dispatch('updateTick').catch(() => {}) }
       const timer = setInterval(tick, 15 * 60_000)

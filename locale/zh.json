@@ -118,7 +118,7 @@
     "report.session": "汇报会话",
     "choose.a.session.for.reports": "选择接收报告的会话",
     "current.session": "当前会话",
-    "reports.arrive.here.when.due.keep": "任务到点后在此会话汇报，Harness 需保持运行。",
+    "reports.arrive.here.when.due.keep": "“运行一次”会立即把任务发到此会话；定时任务到点后在此汇报，Harness 需保持运行。",
     "scheduling.is.unavailable.here.use.ops": "当前环境未提供调度服务，可使用 /ops-run 手动运行。",
     "no.matching.tasks": "没有匹配的任务",
     "make.inspections.routine": "让检查成为例行工作",
@@ -201,7 +201,7 @@
     "external.notifications": "外部通知",
     "add.notification.channels.in.the.plugin": "请先在插件配置中添加通知渠道。",
     "notify.only.on.warnings.failures.or": "仅在告警、失败或采集未完成时通知",
-    "after.saving.choose.a.report.session": "保存后，在例行任务页选择汇报会话并启用调度。",
+    "after.saving.choose.a.report.session": "保存后，在例行任务页选择汇报会话：点击“运行一次”立即执行，或启用调度定时运行。",
     "save.task": "保存任务",
     "credential.name": "凭据名称",
     "username.note": "用户名（仅备注）",
@@ -387,6 +387,9 @@
     "fleet.inspect.host": "立即巡检 {p0}",
     "fleet.inspected": "{p0} 巡检完成：{p1}。",
     "fleet.inspect.failed": "{p0} 巡检失败：{p1}",
-    "fleet.findings.count": "{p0} 项发现"
+    "fleet.findings.count": "{p0} 项发现",
+    "manual.only": "仅手动（运行一次）",
+    "no.run.time.only.run.once": "不设运行时间。在任务卡片点击“运行一次”或用 /ops-run 执行。",
+    "run.once": "运行一次"
   }
 }

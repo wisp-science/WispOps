@@ -24,21 +24,30 @@ export interface Scheduler {
         deleted: boolean;
     }>;
 }
+/** Live agents of open sessions; a queued prompt runs the task there exactly like /ops-run. */
+export interface AgentLookup {
+    (sessionId: string): {
+        followup(message: unknown): void;
+    } | undefined;
+}
 export declare class OpsManager {
     readonly service: OpsService;
     readonly vault: LocalVault;
     private readonly scheduler;
     private readonly updates?;
+    private readonly agents?;
     private readonly state;
     private readonly library;
     private pending;
     private readonly sync;
-    constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined);
+    constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined);
     /** Serialize writes spanning credentials, bindings, and scheduler membership. */
     dispatch(value: unknown): Promise<unknown>;
     private scheduleRecords;
     private update;
     private handle;
+    /** Credentials and sudo policy a scheduled or immediate run would need, checked before anything is queued. */
+    private assertAutomationReady;
     /** Recent inspection history for every host: read-only, bounded, no command output. */
     private overview;
     private snapshot;

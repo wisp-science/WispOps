@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Tasks can run once from the panel: a "Run once" button sends the task prompt to the chosen open session immediately through the new owner-only `runTaskNow` action (the same path as `/ops-run`), and the task form offers a "Manual only" frequency that saves a task without a schedule.
+
 - Add two task presets: "长时间运行任务警告" lists processes and scheduler jobs running longer than a threshold and separates normal long jobs from likely-stuck ones; "低内存警告" reports MemAvailable, swap, top memory consumers and recent OOM kills against configurable thresholds.
 
 - Refresh the Updates panel with a version summary card, contextual status messages and actions, an accessible automatic-update switch, and responsive light/dark layouts.

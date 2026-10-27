@@ -29,7 +29,7 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
   const [notify, setNotify] = useState(task?.notify ?? [])
   const [notifyOnlyProblems, setNotifyOnlyProblems] = useState(task?.notifyOnlyProblems ?? true)
   const [playbook, setPlaybook] = useState(defaults?.playbook ?? 'inspect')
-  const [frequency, setFrequency] = useState(defaults?.schedule?.everyMinutes ? 'interval' : defaults?.schedule?.cron ? 'cron' : defaults?.schedule?.weekdays?.length ? 'weekly' : 'daily')
+  const [frequency, setFrequency] = useState(task && !task.schedule ? 'manual' : defaults?.schedule?.everyMinutes ? 'interval' : defaults?.schedule?.cron ? 'cron' : defaults?.schedule?.weekdays?.length ? 'weekly' : 'daily')
   const [days, setDays] = useState(defaults?.schedule?.weekdays ?? [1, 2, 3, 4, 5])
   const [fields, setFields] = useState({
     name: task?.name ?? proposedName(host ? [host] : []), description: task?.description ?? template?.title ?? '', instruction: task?.instruction ?? '',
@@ -77,9 +77,9 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
   function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (disabled) return
-    const schedule = { timeZone: fields.zone, ...(frequency === 'interval' ? { everyMinutes: fields.interval } : frequency === 'cron' ? { cron: fields.cron } : { daily: fields.time, ...(frequency === 'weekly' ? { weekdays: days } : {}) }) }
+    const schedule = frequency === 'manual' ? undefined : { timeZone: fields.zone, ...(frequency === 'interval' ? { everyMinutes: fields.interval } : frequency === 'cron' ? { cron: fields.cron } : { daily: fields.time, ...(frequency === 'weekly' ? { weekdays: days } : {}) }) }
     void submit({
-      name: fields.name, description: fields.description, targets: selected.join(','), playbook, instruction: fields.instruction, schedule, sudo: fields.sudo,
+      name: fields.name, description: fields.description, targets: selected.join(','), playbook, instruction: fields.instruction, ...(schedule ? { schedule } : {}), sudo: fields.sudo,
       notify, notifyOnlyProblems,
       ...(['disk', 'new-files'].includes(playbook) ? { paths: fields.paths.split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
       ...(playbook === 'new-files' ? { days: fields.lookbackDays } : {}), ...(playbook === 'security' ? { hours: fields.hours } : {}),
@@ -111,11 +111,11 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
       {playbook === 'new-files' && <Field title={tr("look.back.days")}><input type="number" min="1" value={fields.lookbackDays} onChange={e => set('lookbackDays', Number(e.target.value))} required/></Field>}
       {playbook === 'security' && <Field title={tr("look.back.hours")}><input type="number" min="1" value={fields.hours} onChange={e => set('hours', Number(e.target.value))} required/></Field>}
       <div className="wo-form-grid">
-        <Field title={tr("frequency")}><select value={frequency} onChange={e => setFrequency(e.target.value)}><option value="daily">{tr("daily")}</option><option value="weekly">{tr("weekly.2")}</option><option value="interval">{tr("fixed.interval")}</option><option value="cron">{tr("cron.expression")}</option></select></Field>
-        {frequency === 'interval' ? <Field title={tr("interval.minutes")}><input type="number" min="1" value={fields.interval} onChange={e => set('interval', Number(e.target.value))} required/></Field> : frequency === 'cron' ? <Field title={tr("five.field.cron")}><input value={fields.cron} onChange={e => set('cron', e.target.value)} required/></Field> : <Field title={tr("run.time")}><input type="time" value={fields.time} onChange={e => set('time', e.target.value)} required/></Field>}
+        <Field title={tr("frequency")}><select value={frequency} onChange={e => setFrequency(e.target.value)}><option value="manual">{tr("manual.only")}</option><option value="daily">{tr("daily")}</option><option value="weekly">{tr("weekly.2")}</option><option value="interval">{tr("fixed.interval")}</option><option value="cron">{tr("cron.expression")}</option></select></Field>
+        {frequency === 'manual' ? <p className="wo-muted wo-manual-hint">{tr("no.run.time.only.run.once")}</p> : frequency === 'interval' ? <Field title={tr("interval.minutes")}><input type="number" min="1" value={fields.interval} onChange={e => set('interval', Number(e.target.value))} required/></Field> : frequency === 'cron' ? <Field title={tr("five.field.cron")}><input value={fields.cron} onChange={e => set('cron', e.target.value)} required/></Field> : <Field title={tr("run.time")}><input type="time" value={fields.time} onChange={e => set('time', e.target.value)} required/></Field>}
       </div>
       {frequency === 'weekly' && <div className="wo-weekdays">{getWeekdays().map((d, i) => <label key={d}><input type="checkbox" checked={days.includes(i + 1)} onChange={e => setDays(e.target.checked ? [...days, i + 1] : days.filter(n => n !== i + 1))}/>{d}</label>)}</div>}
-      <Field title={tr("time.zone")}><input value={fields.zone} onChange={e => set('zone', e.target.value)} required list="wo-zones"/><datalist id="wo-zones"><option value="Asia/Shanghai"/><option value="America/Los_Angeles"/><option value="UTC"/></datalist></Field>
+      {frequency !== 'manual' && <Field title={tr("time.zone")}><input value={fields.zone} onChange={e => set('zone', e.target.value)} required list="wo-zones"/><datalist id="wo-zones"><option value="Asia/Shanghai"/><option value="America/Los_Angeles"/><option value="UTC"/></datalist></Field>}
       <label className="wo-check"><input type="checkbox" checked={fields.sudo} onChange={e => set('sudo', e.target.checked)}/>{tr("pre.authorize.sudo.for.this.task")}</label>
       <fieldset><legend>{tr("external.notifications")}</legend>{(data.notificationChannels ?? []).map(name => <label className="wo-check" key={name}><input type="checkbox" checked={notify.includes(name)} onChange={e => setNotify(e.target.checked ? [...notify, name] : notify.filter(n => n !== name))}/>{name}</label>)}{!data.notificationChannels?.length && <p>{tr("add.notification.channels.in.the.plugin")}</p>}<label className="wo-check"><input type="checkbox" checked={notifyOnlyProblems} onChange={e => setNotifyOnlyProblems(e.target.checked)}/>{tr("notify.only.on.warnings.failures.or")}</label></fieldset>
       <p className="wo-muted">{tr("after.saving.choose.a.report.session")}</p>
