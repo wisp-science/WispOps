@@ -45,13 +45,13 @@ export class OpsManager {
   private async scheduleRecords(): Promise<ScheduledRecord[]> {
     return await this.scheduler()?.catalog() ?? []
   }
-  private async update(revision: string, edit: (state: ManagedState) => void): Promise<void> {
+  private async update(revision: string, edit: (state: ManagedState) => Promise<void> | void, participate?: (commit: () => Promise<void>) => Promise<void>): Promise<void> {
     await this.state.change(revision, async state => {
-      edit(state)
+      await edit(state)
       // Validate the combined inventory before replacing any file.
       await Inventory.load(this.service.config, this.service.imported, state)
       return state
-    })
+    }, participate)
     // Immediately visible to tools, commands, and the next scheduled run.
     this.service.inventory = await Inventory.load(this.service.config, this.service.imported)
   }
@@ -80,8 +80,43 @@ export class OpsManager {
       const exists = (await this.vault.list()).entries.some(e => e.name === input.name)
       if (request.edit !== true && exists) throw new Error('凭据名称已存在，请编辑已有凭据或使用新名称。')
       if (request.edit === true && !exists) throw new Error('凭据已被删除，请刷新后重试。')
-      await this.vault.save(input, string(request, 'revision'))
-      return { message: '凭据已加密保存。' }
+      const vaultRevision = string(request, 'revision')
+      // Older clients may still save metadata without changing server links.
+      if (request.associations === undefined) {
+        await this.vault.save(input, vaultRevision)
+        return { message: '凭据已加密保存。' }
+      }
+      if (!Array.isArray(request.associations)) throw new Error('服务器关联格式不正确。')
+      const associations = new Map<string, { login: boolean; sudo: boolean }>()
+      for (const value of request.associations) {
+        const row = object(value), name = string(row, 'host')
+        if (typeof row.login !== 'boolean' || typeof row.sudo !== 'boolean' || (!row.login && !row.sudo) || associations.has(name)) throw new Error('请选择服务器的凭据用途，且不要重复关联。')
+        associations.set(name, { login: row.login, sudo: row.sudo })
+      }
+      if (!exists && !associations.size) throw new Error('新增凭据需要关联至少一台服务器。')
+      const ref = `local:${input.name}`
+      const isOwn = (value: string | undefined) => value === ref || (this.service.config.secrets.provider === 'local' && value === input.name)
+      await this.update(string(request, 'managedRevision'), async state => {
+        const inventory = await Inventory.load(this.service.config, this.service.imported, state)
+        for (const name of associations.keys()) if (!inventory.hosts.has(name)) throw new Error(`服务器 ${name} 不存在，请刷新后重试。`)
+        for (const host of inventory.hosts.values()) {
+          const selected = associations.get(host.name)
+          if (!selected && !isOwn(host.loginSecret) && !isOwn(host.sudoSecret)) continue
+          const binding: CredentialBinding = { auth: host.auth ?? 'key', loginSecret: host.loginSecret, sudoSecret: host.sudoSecret }
+          for (const [role, field] of [['login', 'loginSecret'], ['sudo', 'sudoSecret']] as const) {
+            if (selected?.[role]) {
+              // Retaining a dormant login reference must not switch a key-based host.
+              if (role === 'login' && !isOwn(host[field])) binding.auth = 'password'
+              binding[field] = ref
+            } else if (isOwn(host[field])) {
+              binding[field] = undefined
+              if (role === 'login' && binding.auth === 'password') binding.auth = 'key'
+            }
+          }
+          Object.defineProperty(state.bindings, host.name, { value: binding, enumerable: true, writable: true, configurable: true })
+        }
+      }, commit => this.vault.save(input, vaultRevision, commit))
+      return { message: `凭据已加密保存，已更新 ${associations.size} 台服务器的关联。` }
     }
     if (action === 'deleteCredential') {
       const name = string(request, 'name')

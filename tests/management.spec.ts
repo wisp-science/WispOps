@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,6 +38,109 @@ beforeEach(async () => {
 afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
 async function saveCredential() { await manager.dispatch({ action: 'saveCredential', credential, revision: (await vault.list()).revision }) }
 async function saveTask(extra = {}) { await manager.dispatch({ action: 'saveTask', revision: await revision(), task: { name: 'daily', targets: 'a', playbook: 'inspect', schedule: { daily: '08:00', timeZone: 'UTC' }, ...extra } }) }
+async function saveLinked(associations: unknown, extra = {}) {
+  const view = await snap()
+  return await manager.dispatch({ action: 'saveCredential', credential, revision: view.vault.revision, managedRevision: view.revision, associations, ...extra })
+}
+
+describe('credentials associated with servers', () => {
+  it('creates a shared credential and both kinds of links together, immediately and after reload', async () => {
+    await saveLinked([{ host: 'a', login: true, sudo: true }, { host: 'b', login: false, sudo: true }])
+    for (const inventory of [service.inventory, await Inventory.load(service.config)]) {
+      expect(inventory.hosts.get('a')).toMatchObject({ auth: 'password', loginSecret: 'local:login', sudoSecret: 'local:login' })
+      expect(inventory.hosts.get('b')).toMatchObject({ sudoSecret: 'local:login', policy: { sudo: 'deny' } })
+      expect(inventory.hosts.get('b')?.auth).not.toBe('password')
+    }
+    const view = await snap()
+    expect(view.hosts[0].credentials.login.status).toBe('ready')
+    expect(JSON.stringify(view)).not.toContain(credential.password)
+    expect(await vault.loginPassword(service.inventory.hosts.get('a')!)).toBe(credential.password)
+    expect(await readdir(dir)).not.toContain('inventory.yml')
+  })
+  it('edits links without decrypting or replacing the stored secret, preserving other credentials and policy', async () => {
+    await saveLinked([{ host: 'a', login: true, sudo: true }])
+    await vault.save({ ...credential, name: 'other' }, (await vault.list()).revision)
+    await manager.dispatch({ action: 'bindCredentials', host: 'b', binding: { auth: 'password', loginSecret: 'local:other' }, revision: await revision() })
+    const before = JSON.parse(await readFile(join(dir, 'vault.json'), 'utf8')).entries.find((e: any) => e.name === 'login').secret
+    key.mockClear()
+    await saveLinked([{ host: 'a', login: false, sudo: true }, { host: 'b', login: false, sudo: true }], { edit: true, credential: { ...credential, password: '', note: 'edited', agent: false } })
+    expect(key).not.toHaveBeenCalled()
+    expect(service.inventory.hosts.get('a')).toMatchObject({ auth: 'key', sudoSecret: 'local:login' })
+    expect(service.inventory.hosts.get('a')?.loginSecret).toBeUndefined()
+    expect(service.inventory.hosts.get('b')).toMatchObject({ auth: 'password', loginSecret: 'local:other', sudoSecret: 'local:login', policy: { sudo: 'deny' } })
+    expect(JSON.parse(await readFile(join(dir, 'vault.json'), 'utf8')).entries.find((e: any) => e.name === 'login').secret).toBe(before)
+    await expect(vault.password('local:login')).rejects.toThrow('不允许自动化')
+    await saveLinked([], { edit: true, credential: { ...credential, password: undefined } })
+    expect(service.inventory.hosts.get('b')).toMatchObject({ auth: 'password', loginSecret: 'local:other' })
+    expect(service.inventory.hosts.get('b')?.sudoSecret).toBeUndefined()
+    await manager.dispatch({ action: 'deleteCredential', name: 'login', revision: (await vault.list()).revision })
+  })
+  it('retains dormant login references and recognizes unprefixed local references without rewriting YAML', async () => {
+    const yaml = 'hosts:\n  - name: c\n    auth: key\n    loginSecret: login\n    sudoSecret: login\n'
+    await writeFile(join(dir, 'inventory.yml'), yaml)
+    await saveCredential()
+    await saveLinked([{ host: 'c', login: true, sudo: true }], { edit: true, credential: { ...credential, password: undefined } })
+    expect(service.inventory.hosts.get('c')).toMatchObject({ auth: 'key', loginSecret: 'local:login', sudoSecret: 'local:login' })
+    await saveLinked([], { edit: true, credential: { ...credential, password: undefined } })
+    const host = (await Inventory.load(service.config)).hosts.get('c')!
+    expect(host.loginSecret).toBeUndefined()
+    expect(host.sudoSecret).toBeUndefined()
+    expect(await readFile(join(dir, 'inventory.yml'), 'utf8')).toBe(yaml)
+  })
+  it('rejects invalid and stale server selections before writing or accessing the key', async () => {
+    for (const associations of [[], {}, [{ host: 'all', login: true, sudo: false }], [{ host: 'a', login: false, sudo: false }], [{ host: 'a', login: 'yes', sudo: false }], [{ host: 'a', login: true, sudo: false }, { host: 'a', login: false, sudo: true }]]) {
+      await expect(saveLinked(associations)).rejects.toThrow()
+      expect((await vault.list()).entries).toEqual([])
+    }
+    const stale = await revision()
+    await manager.dispatch({ action: 'addHost', host: { name: 'c' }, revision: stale })
+    await expect(saveLinked([{ host: 'a', login: true, sudo: false }], { managedRevision: stale })).rejects.toThrow('刷新')
+    expect(key).not.toHaveBeenCalled()
+    expect((await vault.list()).entries).toEqual([])
+  })
+  it('leaves bindings unchanged if the vault revision is stale or encryption fails', async () => {
+    const stale = (await vault.list()).revision
+    await saveCredential()
+    const before = await revision()
+    await expect(saveLinked([{ host: 'a', login: true, sudo: false }], { edit: true, revision: stale })).rejects.toThrow('刷新')
+    key.mockRejectedValueOnce(new Error('Key unavailable'))
+    await expect(saveLinked([{ host: 'a', login: true, sudo: false }], { edit: true })).rejects.toThrow('Key unavailable')
+    expect(await revision()).toBe(before)
+    expect(service.inventory.hosts.get('a')?.loginSecret).toBeUndefined()
+    expect(await vault.password('local:login')).toBe(credential.password)
+    expect((await readdir(dir)).filter(name => name.endsWith('.lock') || name.endsWith('.tmp'))).toEqual([])
+  })
+  it('rolls back a new or updated encrypted entry when committing associations fails', async () => {
+    const fail = async () => { throw new Error('Association write failed') }
+    const empty = (await vault.list()).revision
+    await expect(vault.save(credential, empty, fail)).rejects.toThrow('Association write failed')
+    expect((await vault.list()).revision).toBe(empty)
+    await saveCredential()
+    const before = await readFile(join(dir, 'vault.json'), 'utf8')
+    await expect(vault.save({ ...credential, password: 'replacement-test-secret' }, (await vault.list()).revision, fail)).rejects.toThrow('Association write failed')
+    expect(await readFile(join(dir, 'vault.json'), 'utf8')).toBe(before)
+    expect(await vault.password('local:login')).toBe(credential.password)
+    expect((await stat(join(dir, 'vault.json'))).mode & 0o777).toBe(0o600)
+    expect((await readdir(dir)).filter(name => name.endsWith('.lock') || name.endsWith('.tmp'))).toEqual([])
+  })
+  it('restores both files when a combined save cannot rename the staged associations', async () => {
+    await saveLinked([{ host: 'a', login: true, sudo: false }])
+    const beforeVault = await readFile(join(dir, 'vault.json'), 'utf8')
+    const beforeManaged = await readFile(join(dir, 'managed.json'), 'utf8')
+    key.mockImplementationOnce(async () => {
+      // Simulate the association file becoming unavailable between staging and commit.
+      const staged = (await readdir(dir)).find(name => name.startsWith('managed.json.') && name.endsWith('.tmp'))
+      expect(staged).toBeDefined()
+      await rm(join(dir, staged!))
+      return new Uint8Array(32).fill(7)
+    })
+    await expect(saveLinked([{ host: 'b', login: true, sudo: true }], { edit: true, credential: { ...credential, password: 'replacement-test-secret' } })).rejects.toThrow()
+    expect(await readFile(join(dir, 'vault.json'), 'utf8')).toBe(beforeVault)
+    expect(await readFile(join(dir, 'managed.json'), 'utf8')).toBe(beforeManaged)
+    expect(service.inventory.hosts.get('a')?.loginSecret).toBe('local:login')
+    expect(service.inventory.hosts.get('b')?.loginSecret).toBeUndefined()
+  })
+})
 
 describe('independent vault', () => {
   it('encrypts at rest, keeps plaintext and ciphertext out of snapshots, and only decrypts for SSH', async () => {

@@ -74,7 +74,7 @@ export class LocalVault implements SecretProvider {
     const { revision, value } = await this.state.read()
     return { revision, entries: value.entries.map(({ secret, ...entry }) => ({ ...entry, hasSecret: secret.length > 0 })) }
   }
-  async save(input: CredentialInput, revision: string): Promise<void> {
+  async save(input: CredentialInput, revision: string, commitAssociations?: () => Promise<void>): Promise<void> {
     if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 100 || /[\r\n]/.test(input.name)) throw new Error('凭据名称不能为空，且不能超过 100 字符。')
     if (typeof input.agent !== 'boolean' || typeof input.username !== 'string' || typeof input.note !== 'string') throw new Error('凭据字段不正确。')
     if (input.password !== undefined && (typeof input.password !== 'string' || input.password.length > 16384 || /[\r\n\0]/.test(input.password))) throw new Error('密码格式不正确（不支持换行或 NUL）。')
@@ -92,7 +92,7 @@ export class LocalVault implements SecretProvider {
       if (!secret) throw new Error('新增凭据需要填写密码。')
       const entry = { name: input.name, username: input.username, note: input.note, agent: input.agent, secret }
       return { version: 1, entries: [...value.entries.filter(e => e.name !== input.name), entry] }
-    })
+    }, commitAssociations ? async commit => { await commit(); await commitAssociations() } : undefined)
   }
   async remove(name: string, revision: string): Promise<void> {
     await this.state.change(revision, value => ({ ...value, entries: value.entries.filter(e => e.name !== name) }))
