@@ -1,18 +1,26 @@
 import { tr } from './i18n'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Api, Snapshot, Task, TaskDraft } from './contracts'
 import { renderTemplate } from '../src/task-template-content'
 import type { TaskTemplate } from '../src/task-template-content'
+import { PanelIcon } from './panel-icon'
 
 const getPlaybooks = (): Record<string, string> => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("combined.custom.checks") })
 const getWeekdays = () => [tr("mon"), tr("tue"), tr("wed"), tr("thu"), tr("fri"), tr("sat"), tr("sun")]
 function Field({ title, children, hint }: { title: string; children: ReactNode; hint?: string }) {
   return <label className="wo-field"><span>{title}</span>{children}{hint && <small>{hint}</small>}</label>
 }
+function TaskToggle({ title, hint, checked, onChange, disabled }: { title: string; hint: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
+  const hintId = useId()
+  return <label className={`wo-task-option${disabled ? ' is-disabled' : ''}`}>
+    <span><strong>{title}</strong><small id={hintId}>{hint}</small></span>
+    <input className="wo-task-switch" type="checkbox" role="switch" aria-label={title} aria-describedby={hintId} checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)}/>
+  </label>
+}
 
-export function TaskForm({ data, task, template, host, api, submit, busy }: {
-  data: Snapshot; task?: Task; template?: TaskTemplate; host?: string; api: Api
+export function TaskForm({ data, task, template, fixedHost, api, submit, busy }: {
+  data: Snapshot; task?: Task; template?: TaskTemplate; fixedHost?: string; api: Api
   submit: (value: Record<string, unknown>, parameters?: Record<string, string>) => Promise<void>; busy: boolean
 }) {
   const defaults = task ?? template?.definition
@@ -25,14 +33,18 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
     while (data.tasks.some(t => t.name === name)) name = `${base}-${n++}`
     return name
   }
-  const [selected, setSelected] = useState(task?.hosts ?? (host ? [host] : []))
+  const [selectedHosts, setSelected] = useState(task?.hosts ?? [])
+  // The server-details entry point fixes both rule generation and saving to this server.
+  const selected = fixedHost ? [fixedHost] : selectedHosts
   const [notify, setNotify] = useState(task?.notify ?? [])
   const [notifyOnlyProblems, setNotifyOnlyProblems] = useState(task?.notifyOnlyProblems ?? true)
+  const notificationChannels = data.notificationChannels ?? []
+  const notificationsId = useId()
   const [playbook, setPlaybook] = useState(defaults?.playbook ?? 'inspect')
   const [frequency, setFrequency] = useState(task && !task.schedule ? 'manual' : defaults?.schedule?.everyMinutes ? 'interval' : defaults?.schedule?.cron ? 'cron' : defaults?.schedule?.weekdays?.length ? 'weekly' : 'daily')
   const [days, setDays] = useState(defaults?.schedule?.weekdays ?? [1, 2, 3, 4, 5])
   const [fields, setFields] = useState({
-    name: task?.name ?? proposedName(host ? [host] : []), description: task?.description ?? template?.title ?? '', instruction: task?.instruction ?? '',
+    name: task?.name ?? proposedName(selected), description: task?.description ?? template?.title ?? '', instruction: task?.instruction ?? '',
     paths: defaults?.paths?.join(', ') ?? (defaults?.playbook === 'new-files' ? '/var/log' : '/'), lookbackDays: defaults?.days ?? 1, hours: defaults?.hours ?? 24,
     time: defaults?.schedule?.daily ?? '08:30', interval: defaults?.schedule?.everyMinutes ?? 60,
     cron: defaults?.schedule?.cron ?? '0 8 * * *', zone: defaults?.schedule?.timeZone ?? data.timeZone, sudo: task?.sudo ?? false,
@@ -88,15 +100,15 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
   }
   return <form onSubmit={save}>
     <fieldset className="wo-form-body" disabled={disabled}>
-      <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}</legend>
+      {!fixedHost && <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}</legend>
         {data.hosts.map(h => <label className="wo-check" key={h.name}><input type="checkbox" checked={selected.includes(h.name)} onChange={e => changeSelection(e.target.checked ? [...selected, h.name] : selected.filter(n => n !== h.name))}/>{h.name}<small>{h.ssh}</small></label>)}
         {!data.hosts.length && <p>{tr("add.a.server.first")}</p>}
-      </fieldset>
+      </fieldset>}
       {template ? <><div className="wo-template-context"><strong>{template.title}</strong><p>{template.description}</p><small>{tr("rules.are.ready.specify.the.check")}</small></div>{template.parameters.map(p => <Field key={p.key} title={p.label} hint={p.hint}><textarea value={parameters[p.key] ?? ''} onChange={e => setParameters(previous => ({ ...previous, [p.key]: e.target.value }))} required={p.required} maxLength={4000} rows={2}/></Field>)}<details className="wo-template-preview"><summary>{tr("view.preset.inspection.rules")}</summary><p>{renderTemplate(template, parameters, false)}</p></details></> : <><Field title={tr("checks")}><select value={playbook} onChange={e => { setPlaybook(e.target.value); invalidateDraft(); if (e.target.value === 'new-files' && fields.paths === '/') set('paths', '/var/log') }}>{Object.entries(getPlaybooks()).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
       <div className="wo-generator">
         <strong>{tr("generate.inspection.rules")}</strong>
         <p>{tr("fill.the.task.name.checks.and")}</p>
-        <label className="wo-check"><input type="checkbox" checked={refreshProbe} onChange={e => setRefreshProbe(e.target.checked)}/>{tr("connect.to.selected.servers.for.a")}</label>
+        <label className="wo-check"><input type="checkbox" checked={refreshProbe} onChange={e => setRefreshProbe(e.target.checked)}/>{fixedHost ? tr("connect.to.current.server.for.a") : tr("connect.to.selected.servers.for.a")}</label>
         <small>{refreshProbe ? tr("probing.os.gpu.schedulers.and.containers") : tr("use.saved.probes.and.inspection.records")}</small>
         <button type="button" className="wo-primary" disabled={!selected.length} onClick={() => void generate()}>{generating ? tr("generating") : tr("generate.inspection.rules.2")}</button>
       </div></>}
@@ -116,10 +128,20 @@ export function TaskForm({ data, task, template, host, api, submit, busy }: {
       </div>
       {frequency === 'weekly' && <div className="wo-weekdays">{getWeekdays().map((d, i) => <label key={d}><input type="checkbox" checked={days.includes(i + 1)} onChange={e => setDays(e.target.checked ? [...days, i + 1] : days.filter(n => n !== i + 1))}/>{d}</label>)}</div>}
       {frequency !== 'manual' && <Field title={tr("time.zone")}><input value={fields.zone} onChange={e => set('zone', e.target.value)} required list="wo-zones"/><datalist id="wo-zones"><option value="Asia/Shanghai"/><option value="America/Los_Angeles"/><option value="UTC"/></datalist></Field>}
-      <label className="wo-check"><input type="checkbox" checked={fields.sudo} onChange={e => set('sudo', e.target.checked)}/>{tr("pre.authorize.sudo.for.this.task")}</label>
-      <fieldset><legend>{tr("external.notifications")}</legend>{(data.notificationChannels ?? []).map(name => <label className="wo-check" key={name}><input type="checkbox" checked={notify.includes(name)} onChange={e => setNotify(e.target.checked ? [...notify, name] : notify.filter(n => n !== name))}/>{name}</label>)}{!data.notificationChannels?.length && <p>{tr("add.notification.channels.in.the.plugin")}</p>}<label className="wo-check"><input type="checkbox" checked={notifyOnlyProblems} onChange={e => setNotifyOnlyProblems(e.target.checked)}/>{tr("notify.only.on.warnings.failures.or")}</label></fieldset>
-      <p className="wo-muted">{tr("after.saving.choose.a.report.session")}</p>
-      <div className="wo-form-actions"><button className="wo-primary" disabled={!selected.length || (frequency === 'weekly' && !days.length)}>{busy ? tr("saving") : tr("save.task")}</button></div>
+      <div className="wo-task-options">
+        <TaskToggle title={tr("task.sudo.title")} hint={tr("task.sudo.hint")} checked={fields.sudo} onChange={value => set('sudo', value)}/>
+        <section className="wo-task-notifications" aria-labelledby={notificationsId}>
+          <div className="wo-task-options-heading"><h3 id={notificationsId}>{tr("external.notifications")}</h3>{!notificationChannels.length && <span className="wo-task-option-status">{tr("task.notifications.unconfigured")}</span>}</div>
+          {notificationChannels.length ? <>
+            <div className="wo-task-channels" role="group" aria-labelledby={notificationsId}>{notificationChannels.map(name => <label className={`wo-task-channel${notify.includes(name) ? ' is-selected' : ''}`} key={name}><input type="checkbox" checked={notify.includes(name)} onChange={e => setNotify(e.target.checked ? [...notify, name] : notify.filter(n => n !== name))}/><span>{name}</span></label>)}</div>
+            <TaskToggle title={tr("task.notifications.only.problems")} hint={tr("notify.only.on.warnings.failures.or")} checked={notifyOnlyProblems} disabled={!notificationChannels.some(name => notify.includes(name))} onChange={setNotifyOnlyProblems}/>
+          </> : <p className="wo-task-notifications-empty">{tr("add.notification.channels.in.the.plugin")}</p>}
+        </section>
+      </div>
+      <div className="wo-task-submit">
+        <p className="wo-task-save-note"><PanelIcon kind="info"/><span>{tr("after.saving.choose.a.report.session")}</span></p>
+        <button className="wo-primary" disabled={!selected.length || (frequency === 'weekly' && !days.length)}>{busy ? tr("saving") : tr("save.task")}</button>
+      </div>
     </fieldset>
   </form>
 }

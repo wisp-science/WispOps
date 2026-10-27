@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-27
+
+- Restyle task authorization and notifications as compact settings rows with accessible switches, selectable channel chips, a clear unconfigured state, and a responsive save footer. Hide notification preferences when no channels are configured and disable them until a channel is selected.
+- Keep task linking from server details scoped to that server: remove the server picker, name the server in the dialog, and use it for both rule generation and saving. Task library and recurring-task entry points still support multiple servers.
 - Edit and delete servers added in the panel from the server details through new owner-only `editHost` and `deleteHost` actions. The name stays fixed; deleting removes the server's credential links and permission overrides and is refused while a task names the server. YAML and WispTerm servers show where they are managed instead.
 - Delete a credential that is still linked to servers: after confirmation, each linked server's SSH login falls back to the SSH key and sudo to no stored password, in the same save as the vault removal.
 - Generate a task template in chat: **Generate in chat** in the new-template dialog sends what you have filled in to the current conversation. The agent submits a draft through the new `ops_template_draft` tool, which writes only a review queue (`dataDir/template-drafts.json`). Drafts appear under **Drafts to review** in the task library and reach the library only when you save the prefilled form; the panel picks a new draft up automatically for 15 minutes.

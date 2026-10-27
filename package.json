@@ -1,6 +1,6 @@
 {
   "name": "dsh-wisp-ops",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Server management, an independent encrypted credential vault, and per-server recurring operations for DeepSeek Harness.",
   "keywords": [
     "dsh",
