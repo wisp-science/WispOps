@@ -16,6 +16,7 @@ import { builtinTemplates, templateStore, validateTemplate } from './task-librar
 import { renderTemplate } from './task-template-content.ts'
 import { OpsSync } from './sync.ts'
 import { OpsUpdates } from './updates.ts'
+import { buildOverview, overviewLimit } from './overview.ts'
 import type { UpdateHost } from './updates.ts'
 
 export interface ScheduledRecord { id: string; title: string; sessionId: string; scheduledAt: string; status: string }
@@ -68,6 +69,7 @@ export class OpsManager {
     await this.service.refresh()
     const action = string(request, 'action')
     if (action === 'snapshot') return this.snapshot()
+    if (action === 'overview') return this.overview(request)
     if (['updateStatus', 'updateSettings', 'updateCheck', 'updateInstall'].includes(action)) {
       if (!this.updates) throw new Error('Update service is unavailable')
       return this.updates.dispatch(action, request)
@@ -260,6 +262,12 @@ export class OpsManager {
       return { message: `调度已启用，下次运行：${record.scheduledAt}` }
     }
     throw new Error('未知的管理操作。')
+  }
+  /** Recent inspection history for every host: read-only, bounded, no command output. */
+  private async overview(request: Request) {
+    const limit = overviewLimit(request.limit)
+    const hosts = await Promise.all([...this.service.inventory.hosts.values()].map(async host => ({ name: host.name, groups: host.groups, history: await this.service.store.readHistory(host.name, limit) })))
+    return buildOverview(hosts, limit)
   }
   private async snapshot() {
     const state = await this.state.read(), vault = await this.vault.list()

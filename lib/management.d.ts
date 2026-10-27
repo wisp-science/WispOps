@@ -39,6 +39,8 @@ export declare class OpsManager {
     private scheduleRecords;
     private update;
     private handle;
+    /** Recent inspection history for every host: read-only, bounded, no command output. */
+    private overview;
     private snapshot;
 }
 export declare class OpsManagement extends TypertRemoteService {

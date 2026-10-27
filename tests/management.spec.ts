@@ -270,6 +270,27 @@ describe('server and task management', () => {
   })
 })
 
+describe('fleet overview', () => {
+  it('returns bounded inspection history per host without command output or credentials', async () => {
+    await saveLinked([{ host: 'a', login: true, sudo: true }])
+    for (let i = 0; i < 5; i++) await service.store.appendHistory('a', { at: `2026-10-0${i + 1}T08:00:00Z`, status: 'ok', diskPct: { '/': 50 + i * 10 }, memAvailPct: 40 - i, findings: i >= 3 ? [{ severity: i === 4 ? 'crit' : 'warn', code: 'disk-high', message: `/ ${50 + i * 10}% used` }] : [] })
+    await service.store.appendHistory('b', { at: '2026-10-05T08:00:00Z', status: 'unreachable', diskPct: {}, findings: [{ severity: 'crit', code: 'unreachable', message: 'ssh: connect timed out' }] })
+    const view = await manager.dispatch({ action: 'overview', limit: 3 }) as any
+    expect(view.limit).toBe(3)
+    expect(view.hosts.map((h: any) => h.name)).toEqual(['a', 'b'])
+    expect(view.hosts[0].rows.map((r: any) => r.state)).toEqual(['ok', 'warn', 'crit'])
+    expect(view.hosts[0].rows.map((r: any) => r.diskPct['/'])).toEqual([70, 80, 90])
+    expect(view.hosts[1]).toMatchObject({ latest: 'unreachable', rows: [{ state: 'unreachable', findings: [{ code: 'unreachable' }] }] })
+    expect(view.summary).toEqual({ ok: 0, warn: 0, crit: 1, unreachable: 1, never: 0 })
+    const text = JSON.stringify(view)
+    expect(text).not.toContain(credential.password)
+    expect(text).not.toContain('loginSecret')
+    // Out-of-range or malformed limits are clamped, never rejected.
+    expect((await manager.dispatch({ action: 'overview', limit: 'all' }) as any).hosts[0].rows).toHaveLength(5)
+    expect((await manager.dispatch({ action: 'overview', limit: 99_999 }) as any).limit).toBe(200)
+  })
+})
+
 describe('real DSH Gateway', () => {
   it('dispatches an owner request over the native protocol and refuses non-owner callers', async () => {
     const ctx = new Context()

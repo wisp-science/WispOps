@@ -6,6 +6,7 @@ import css from './style.css'
 import { UpdatePanel } from './update-panel'
 import manifest from '../package.json'
 import { SyncPanel } from './sync-panel'
+import { OverviewPanel } from './overview-panel'
 import { TaskForm } from './task-form'
 import { TemplateForm } from './template-form'
 import type { TaskTemplate } from '../src/task-template-content'
@@ -41,7 +42,7 @@ export function OpsPage(props: PageProps) {
   useLocale()
   const sessions = props.useSessions?.(s => s)
   const [data, setData] = useState<Snapshot>()
-  const [tab, setTab] = useState('hosts')
+  const [tab, setTab] = useState(props.sidebar ? 'hosts' : 'overview')
   const [search, setSearch] = useState('')
   const [hostName, setHostName] = useState('')
   const [modal, setModal] = useState<Modal>(null)
@@ -100,8 +101,9 @@ export function OpsPage(props: PageProps) {
     {data?.warnings.map(w => <div className="wo-alert" key={w}>{w}</div>)}
     {!data ? <div className="wo-empty">{loading ? tr("reading.the.server.inventory") : tr("management.data.is.unavailable")}</div> : <>
       <div className="wo-overview" aria-label={tr("operations.overview")}><span>{tr("servers")}<strong>{data.hosts.length}</strong></span><span>{tr("credentials")}<strong>{data.vault.entries.length}</strong></span><span><i className={`wo-dot ${data.tasks.some(t => t.scheduled.length) ? 'good' : ''}`} aria-hidden="true"/>{tr("enabled.tasks")}<strong>{data.tasks.filter(t => t.scheduled.length > 0).length}<small> / {data.tasks.length}</small></strong></span></div>
-      <nav className="wo-tabs" aria-label={tr("operations.management")}>{[['hosts', tr("servers.2"), data.hosts.length], ['vault', tr("vault"), data.vault.entries.length], ['library', tr("task.library"), templates.length], ['tasks', tr("recurring.tasks"), data.tasks.length], ['sync', tr("device.sync"), ''], ['updates', tr('updates.title'), '']].map(([key, title, n]) => <button key={key} aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''} onClick={() => { setTab(String(key)); setSearch('') }}>{title}{n !== '' && <span>{n}</span>}</button>)}</nav>
-      {!['sync', 'updates'].includes(tab) && <div className="wo-toolbar"><input type="search" aria-label={tr("search")} placeholder={tab === 'hosts' ? tr("search.servers.addresses.or.groups") : tab === 'vault' ? tr("search.credentials.usernames.or.servers") : tab === 'library' ? tr("search.templates.purposes.or.categories") : tr("search.tasks.or.linked.servers")} value={search} onChange={e => setSearch(e.target.value)}/><button className="wo-primary" disabled={busy} onClick={() => { setError(''); setModal(tab === 'hosts' ? { type: 'host' } : tab === 'vault' ? { type: 'credential' } : tab === 'library' ? { type: 'template' } : { type: 'picker' }) }}>＋ {tab === 'hosts' ? tr("add.server") : tab === 'vault' ? tr("new.credential") : tab === 'library' ? tr("new.template") : tr("link.task")}</button></div>}
+      <nav className="wo-tabs" aria-label={tr("operations.management")}>{[['overview', tr('fleet.overview'), ''], ['hosts', tr("servers.2"), data.hosts.length], ['vault', tr("vault"), data.vault.entries.length], ['library', tr("task.library"), templates.length], ['tasks', tr("recurring.tasks"), data.tasks.length], ['sync', tr("device.sync"), ''], ['updates', tr('updates.title'), '']].map(([key, title, n]) => <button key={key} aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''} onClick={() => { setTab(String(key)); setSearch('') }}>{title}{n !== '' && <span>{n}</span>}</button>)}</nav>
+      {!['overview', 'sync', 'updates'].includes(tab) && <div className="wo-toolbar"><input type="search" aria-label={tr("search")} placeholder={tab === 'hosts' ? tr("search.servers.addresses.or.groups") : tab === 'vault' ? tr("search.credentials.usernames.or.servers") : tab === 'library' ? tr("search.templates.purposes.or.categories") : tr("search.tasks.or.linked.servers")} value={search} onChange={e => setSearch(e.target.value)}/><button className="wo-primary" disabled={busy} onClick={() => { setError(''); setModal(tab === 'hosts' ? { type: 'host' } : tab === 'vault' ? { type: 'credential' } : tab === 'library' ? { type: 'template' } : { type: 'picker' }) }}>＋ {tab === 'hosts' ? tr("add.server") : tab === 'vault' ? tr("new.credential") : tab === 'library' ? tr("new.template") : tr("link.task")}</button></div>}
+      {tab === 'overview' && <OverviewPanel api={props.api} hosts={data.hosts} onSelectHost={name => { setHostName(name); setTab('hosts'); setSearch('') }}/>}
       {tab === 'updates' && <UpdatePanel api={props.api}/>}
       {tab === 'sync' && <SyncPanel api={props.api} onImported={load}/>}
       {tab === 'hosts' && <div className="wo-host-layout"><section className="wo-hosts" aria-label={tr("server.list")}>{data.hosts.filter(h => matches(`${h.name} ${h.description ?? ''} ${h.ssh ?? ''} ${h.groups.join(' ')}`)).map(h => <button key={h.name} className={`wo-host-row ${host?.name === h.name ? 'selected' : ''}`} onClick={() => setHostName(h.name)}><div className="wo-host-symbol">▤</div><div><strong>{h.name}</strong><span className="wo-mono">{h.user ? `${h.user}@` : ''}{h.ssh ?? h.name}{h.port ? `:${h.port}` : ''}</span><div className="wo-chips">{h.groups.map(g => <Badge key={g}>{g}</Badge>)}<small>{h.tasks.length} {tr("tasks")}</small></div></div><span className="wo-chevron">›</span></button>)}{!data.hosts.length && <div className="wo-empty">{tr("add.your.first.server")}<br/><small>{tr("existing.yaml.inventories.are.also.supported")}</small></div>}{data.hosts.length > 0 && !data.hosts.some(h => matches(`${h.name} ${h.description ?? ''} ${h.ssh ?? ''} ${h.groups.join(' ')}`)) && <div className="wo-empty">{tr("no.matching.servers")}</div>}</section>

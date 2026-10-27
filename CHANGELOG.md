@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a fleet overview tab to the management panel: an inspection status matrix per server and inline SVG trend lines for disk, memory and CPU, read from stored inspection history through a new owner-only `overview` action.
+
 ## 0.6.0 — 2026-10-27
 
 - Add opt-in task notifications for WeCom, DingTalk, Feishu and generic HTTPS webhooks (including email gateways).

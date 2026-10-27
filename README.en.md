@@ -58,6 +58,8 @@ Panel data is stored atomically in `dataDir/managed.json`; the existing YAML and
 
 The panel uses a compact overview and adapts to its pane width: a single column in the sidebar and two columns in a wide panel. Task cards group the playbook, hosts, schedule and actions, with expandable inspection rules.
 
+The **Fleet overview** tab (the default in the full panel) reads stored inspection history without connecting to any server: a status matrix with one square per inspection and server, colored healthy / warning / critical / unreachable, and inline SVG trend lines for the busiest mounts, available memory and CPU of the selected server, with the findings of the selected inspection. It is served by an owner-only `overview` action and shows the last 10, 30 or 90 inspections. Text trends remain available through `ops_history kind=trends`.
+
 ## Automatic inspection rules (0.3)
 
 In the task editor, select hosts and a playbook, then click **自动生成巡查规则** (Generate inspection rules). The local rule generator fills a unique name, title, reporting instructions and a daily 08:30 schedule in the configured timezone. It uses stored capability probes, the latest successful inspection and configured thresholds, adding GPU, scheduler and container checks only when observed. Missing or stale observations are disclosed. Existing task identities and schedules are preserved when regenerating.

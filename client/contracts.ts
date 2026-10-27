@@ -28,3 +28,8 @@ export interface Snapshot {
 export type Api = (request: Record<string, unknown>) => Promise<any>
 export interface SessionList { ids: string[]; byId: Record<string, { displayTitle: string; parentId?: string; retainedBy?: { mainView?: number } }> }
 export interface PageProps { api: Api; sidebar?: boolean; defaultSessionId?: string; useSessions?: (selector: (state: SessionList) => SessionList) => SessionList }
+/** Mirrors src/overview.ts; the panel only reads these shapes. */
+export type OverviewState = 'ok' | 'warn' | 'crit' | 'unreachable'
+export interface OverviewRow { at: string; state: OverviewState; diskPct: Record<string, number>; memAvailPct?: number; load1?: number; cpuPct?: number; findings: { severity: 'warn' | 'crit'; code: string; message: string }[] }
+export interface OverviewHost { name: string; groups: string[]; rows: OverviewRow[]; latest: OverviewState | 'never' }
+export interface Overview { generatedAt: string; limit: number; hosts: OverviewHost[]; summary: Record<OverviewState | 'never', number> }
