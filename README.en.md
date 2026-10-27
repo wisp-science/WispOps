@@ -2,7 +2,17 @@
 
 # WispOps (dsh-wisp-ops)
 
-Multi-host server operations for DeepSeek Harness. It covers an inventory with groups, fleet health inspection with thresholds and trends, disk-full diagnosis, and fleet commands over the system OpenSSH client. Change, sudo, and destructive actions are authorized per host: by policy, by a time-boxed human grant, or by a one-shot approval of the exact call. Sudo and login passwords come from the WispTerm Password Store and never reach the model.
+Multi-host server operations for DeepSeek Harness, with a Desktop/Web management panel, an independent encrypted credential vault, and recurring tasks linked to servers. It also covers fleet inspection, disk diagnosis, security triage, and commands over OpenSSH. Change, sudo, and destructive actions are authorized per host. WispTerm is optional; passwords are passed directly to SSH and never returned to the page or model.
+
+## Management panel (0.2)
+
+After upgrading, rebuild and restart Harness. Open **服务器运维** (Server operations) in the sidebar or the WispOps plugin details.
+
+- **Servers:** view the existing inventory, add hosts, inspect associated credentials and tasks, and bind login/sudo credentials separately.
+- **Vault:** create encrypted credentials, update metadata without replacing a password, and disable automation access. A credential cannot be removed while a server references it.
+- **Recurring tasks:** select one or several servers, choose a playbook, report instruction, schedule and timezone, then save. Select the receiving session and enable scheduling. The task also appears in Harness's native Automation tasks page. Stop scheduling before editing or deleting a task.
+
+Panel data is stored atomically in `dataDir/managed.json`; the existing YAML and its comments remain intact. YAML tasks remain editable in their source. Panel tasks bind exact host names, and duplicate enable requests do not create duplicate schedules within one session. Without the Schedule service, definitions can still be saved and run through `/ops-run`. Harness must remain running for delivery. Management endpoints are owner-only and are not model tools.
 
 ## Tools and commands
 
@@ -44,16 +54,15 @@ Invariants:
 
 ## Passwords
 
-With `secrets.provider: wispterm`, the plugin reads WispTerm's Password Store read-only:
-- Entries are encrypted with XChaCha20-Poly1305.
-- The key comes from the macOS Keychain (`WispTerm Password Store` / `vault-key`), from Windows DPAPI, or from `passwords.key` on Linux.
-- Entries marked not-for-agents are refused.
+The default `secrets.provider: local` uses WispOps's own `dataDir/vault.json`, encrypted with XChaCha20-Poly1305, random nonces and entry names as authenticated data. The key belongs to the independent **WispOps Password Store** macOS Keychain service, Windows user-scoped DPAPI, or an owner-only `vault.key` file on Linux. Data files use mode `0600`, with atomic writes and revision checks. Linux protection depends on filesystem permissions; someone who can read both key and ciphertext can decrypt the vault. Backups and migrations must preserve the corresponding key as well as the encrypted file; macOS keys are associated with the data directory and Windows keys with the original OS user.
+
+Explicit `local:<entry name>` references use this vault regardless of the configured legacy provider. Optional `secrets.provider: wispterm` reads WispTerm's existing store for unprefixed references without writing to it. Entries with automation access disabled are refused. Passwords are never shown in edit forms; leaving the password blank preserves it. Names, usernames and notes are ordinary metadata and must not contain secrets.
 
 Hosts reference entries in two ways:
 - `sudoSecret` names the sudo password. The remote side reads the password with `read`, pipes it into `sudo -S -v`, then runs the script through `sudo -n`.
 - `auth: password` plus `loginSecret` enables password login through a one-shot askpass (OpenSSH 8.4 or later).
 
-Passwords never appear in arguments, results, or the audit log, and any echo of one is redacted.
+Passwords never appear in SSH process arguments, model tool results, or the operations audit log, and any echo of one is redacted.
 
 ## Tasks and skills
 
@@ -69,12 +78,13 @@ The agent cannot edit the inventory, the data directory, or the WispTerm store, 
 dsh plugin --profile web add github:wisp-science/WispOps
 ```
 
-Then create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). Configuration keys are listed in the Chinese README and in `src/config.ts`.
+Restart Harness and add servers in the management panel, or create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). For a local linked installation, run `npm run build` and restart Harness to load the new browser entry. Configuration keys are listed in the Chinese README and in `src/config.ts`.
 
 ## Limits
 
 - Target hosts are assumed to be GNU/Linux.
 - A timed-out remote command may still be running.
-- Not built yet: `ops_change` (backup, change, verify, roll back), scheduled inspections, and a Web fleet panel.
+- The management panel currently uses Chinese labels. YAML-owned tasks are edited in YAML. A scheduled task must be stopped before its definition can be edited in the panel.
+- A dedicated `ops_change` workflow (backup, change, verify, roll back) is not implemented.
 
 MIT licensed.

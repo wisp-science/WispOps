@@ -7,6 +7,7 @@
  */
 
 import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Config, HostSpec } from './config.ts'
 import { diskScript, parseDisk } from './collectors/disk.ts'
 import type { DiskOptions, DiskReport } from './collectors/disk.ts'
@@ -63,13 +64,13 @@ export class OpsService {
   readonly store: OpsStore
   readonly grants = new GrantStore()
 
-  private fileStamp: number | undefined
+  private fileStamp: string | undefined
 
   constructor(
     readonly config: Config,
     public inventory: Inventory,
     private readonly secrets: SecretProvider,
-    private readonly imported: readonly HostSpec[] = [],
+    readonly imported: readonly HostSpec[] = [],
   ) {
     this.runner = new SshRunner(config.ssh, config.limits.maxOutputBytes, config.dataDir)
     this.store = new OpsStore(config.dataDir)
@@ -81,8 +82,11 @@ export class OpsService {
    * reports the error.
    */
   async refresh(): Promise<void> {
-    if (this.config.inventoryFile === undefined) return
-    const mtime = await stat(this.config.inventoryFile).then(s => s.mtimeMs, () => 0)
+    const paths = [join(this.config.dataDir, 'managed.json'), ...this.config.inventoryFile === undefined ? [] : [this.config.inventoryFile]]
+    const mtime = (await Promise.all(paths.map(path => stat(path).then(s => `${s.mtimeMs}:${s.ctimeMs}:${s.size}`, error => {
+      if (error.code === 'ENOENT') return 'missing'
+      throw error
+    })))).join('|')
     if (this.fileStamp === undefined) {
       this.fileStamp = mtime
       return

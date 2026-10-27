@@ -6,7 +6,7 @@
  * OpenSSH client, under a per-host permission model: read runs freely;
  * change, sudo, and destructive actions follow host policy, human grants
  * (/ops-allow), or a one-shot approval of the exact call through the host's
- * approval UI. Passwords come from the WispTerm Password Store and never
+ * approval UI. Passwords come from the independent encrypted vault (or an optional WispTerm source) and never
  * reach the model.
  * @module dsh-wisp-ops
  */
@@ -30,6 +30,8 @@ import { registerTools, VoucherBook } from './tools.ts'
 import { classifyCommand } from './risk.ts'
 import { resolve as resolvePath, sep } from 'node:path'
 import { loadWispTermHosts, wisptermConfigDir, WispTermSecrets } from './wispterm.ts'
+import { LocalVault, routeSecrets } from './vault.ts'
+import { OpsManagement } from './management.ts'
 
 export { Config }
 export const name = 'dsh-wisp-ops'
@@ -38,7 +40,7 @@ export const inject = ['tools', 'systemPrompt']
 const OPS_TOOLS = new Set(['ops_hosts', 'ops_exec', 'ops_inspect', 'ops_disk', 'ops_files', 'ops_security', 'ops_task', 'ops_history'])
 
 const GUIDANCE = `Server operations (dsh-wisp-ops). Manage remote servers only through the ops_* tools; never ssh/scp/rsync to inventory hosts from a local shell, and never edit the WispOps inventory or state files (they are the user's permission settings).
-1. Orient: ops_hosts (inventory, policy, capabilities, grants). For "check the servers", run ops_inspect first. Predefined per-server jobs: ops_task (list/run); scheduled deliveries ask you to run one.
+1. Orient: ops_hosts (inventory, policy, capabilities, grants). For "check the servers", run ops_inspect first. Predefined per-server jobs: ops_task (list/run); scheduled deliveries ask you to run one. The user manages servers, independent encrypted credentials, and recurring tasks in the WispOps server operations panel; WispTerm is optional. Never request passwords in chat.
 2. Diagnose read-only before acting: ops_inspect, ops_disk (full disk), ops_files (recent/new files, sequencing intermediates), ops_security (attacks, suspicious logins/processes), read-only ops_exec. Explain causes from the evidence. Skills wisp-disk-full, wisp-omics-cleanup, wisp-security-triage, wisp-daily-report, wisp-safe-change and wisp-hpc-gpu hold the detailed procedures — load the matching one.
 3. Before any change, state the plan: what, why, risk, how to verify, how to roll back. Back up every file you will edit on the host first (cp -a FILE FILE.bak.$(date +%Y%m%d%H%M%S)) and record the current state.
 4. Execute with ops_exec and a clear reason. Set sudo=true rather than writing sudo. Approval prompts are the user's decision: never rephrase, split, or obfuscate a command to avoid classification or approval, and never ask for a password (stored passwords are used automatically when allowed).
@@ -60,8 +62,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const wisptermDir = expandHome(config.secrets.wisptermDir ?? wisptermConfigDir())
   const imported = config.secrets.importWisptermHosts ? await loadWispTermHosts(wisptermDir) : []
   const inventory = await Inventory.load(resolved, imported)
-  const secrets = config.secrets.provider === 'wispterm' ? new WispTermSecrets(wisptermDir) : noSecrets
-  if (secrets instanceof WispTermSecrets) ctx.effect(() => () => secrets.dispose())
+  const vault = new LocalVault(resolved.dataDir)
+  const legacy = config.secrets.provider === 'wispterm' ? new WispTermSecrets(wisptermDir) : config.secrets.provider === 'local' ? vault : noSecrets
+  if (legacy instanceof WispTermSecrets) ctx.effect(() => () => legacy.dispose())
+  const secrets = routeSecrets(vault, legacy)
   const protectedRoots = [resolved.dataDir, wisptermDir, ...resolved.inventoryFile === undefined ? [] : [resolved.inventoryFile]].map(p => resolvePath(p))
   const isProtected = (path: string) => {
     const full = resolvePath(path)
@@ -71,6 +75,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const protectedMentions = (command: string) => mentionForms.some(form => command.includes(form)) || /\.dsh-wisp-ops\b|wispterm\/(?:passwords|ssh_hosts)/.test(command)
   const service = new OpsService(resolved, inventory, secrets, imported)
   await service.refresh()
+  ctx.plugin(OpsManagement, { service, vault })
   const vouchers = new VoucherBook()
 
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {

@@ -2,13 +2,27 @@
 
 # WispOps（dsh-wisp-ops）
 
-> DeepSeek Harness 的**多主机服务器运维**插件：主机清单与分组、机群巡检（阈值告警 + 趋势）、磁盘写满诊断、近期新增文件分析（含测序/分析中间文件的清理建议）、网络攻击排查、按服务器的定时汇报、批量命令；变更 / sudo / 破坏性操作逐主机授权，危险动作由你批准，sudo 密码来自 WispTerm 密码库，模型永远看不到。
+> DeepSeek Harness 的**多主机服务器运维**插件：可视化服务器管理、独立加密密码库、关联服务器的例行任务，以及机群巡检、磁盘诊断、安全排查和批量命令。变更 / sudo / 破坏性操作逐主机授权；密码由插件直接交给 SSH，不返回给页面或模型。**无需安装 WispTerm。**
+
+## 0.2 管理面板
+
+安装或升级后重启 Harness，侧边栏打开 **服务器运维**，或从插件详情进入管理面板：
+
+1. **服务器**：显示已有 YAML / 配置清单与面板新增的服务器，支持搜索、分组、连接信息、凭据状态及关联任务。点击“添加服务器”录入地址、用户名和端口。
+2. **密码库**：新增或编辑独立加密凭据。用户名和备注用于识别凭据，连接用户名仍以服务器配置为准。编辑时密码留空保留原密码；可禁用自动化使用；仍有服务器关联的凭据不能删除。
+3. **管理关联**：在服务器详情中分别选择 SSH 登录和 sudo 凭据；同一凭据可供多个服务器使用。SSH 密钥登录和免密 sudo 不需要密码库条目。
+4. **例行任务**：从服务器详情创建任务会自动选中该服务器，也可在任务表单勾选多台服务器；设置检查内容、报告要求、每天 / 每周 / 固定间隔 / Cron 和时区。
+5. **启用调度**：保存任务后选择接收报告的会话并点击“启用调度”。任务也会出现在 Harness 原生“自动化任务”中。可以停用再编辑或删除；重复启用不会在同一会话创建重复调度。DSH 必须保持运行。
+
+面板新增的服务器、凭据关联和任务保存在 `dataDir/managed.json`，原 YAML 文件及注释不会被改写。YAML 定义的任务在面板中可查看、启用和停用，编辑仍在原配置中进行。面板创建的任务绑定保存时选定的具体服务器，不会因为后来新增分组成员而扩大范围。没有调度服务时仍能保存任务，使用 `/ops-run <任务名>` 手动运行。
+
+管理 API 只向宿主所有者开放，不注册成模型工具。保存会检查文件版本，拒绝用旧页面覆盖新数据。
 
 ## 它和其他方案的关系
 
 | | 官方 SSH provider（`packages/ssh`） | [dsh-ssh-ops](https://github.com/caoyiwei850/dsh-ssh-ops) | **WispOps** |
 |---|---|---|---|
-| 形态 | 把一个会话的文件/进程世界整体搬到**一台**远程主机 | 单台服务器的交互式终端、SFTP、数据库面板（Web UI） | **一群**服务器的巡检、诊断、批量操作（无 UI，CLI/Web 都能用） |
+| 形态 | 把一个会话的文件/进程世界整体搬到**一台**远程主机 | 单台服务器的交互式终端、SFTP、数据库面板（Web UI） | **一群**服务器的巡检、诊断、批量操作，Desktop / Web 管理面板，CLI 可使用工具及命令 |
 | 多主机 | 一个 profile 一台 | 批量需在面板里人工勾选 | 清单、分组、标签、选择器，并发执行 |
 | 权限 | 沙箱 + 审批策略 | 高危黑名单 + 会话审批 | 逐主机 change/sudo/destructive 策略 + 限时授权 + 单次审批 |
 
@@ -115,9 +129,20 @@ tasks:
 - 模型不能修改清单文件、数据目录和 WispTerm 密码库：DSH 的 `write`/`edit`/`str_replace_editor` 写入这些路径会被拒绝，bash 中非只读的命令只要涉及这些路径也会被拒绝。否则模型可以改清单给自己放开权限。
 - DSH 的 `danger-full-access` 预设审批策略是 `never`，此时所有 ask 都会被拒绝；要在该模式下使用，请在清单里写 `allow` 或用 `/ops-allow`。
 
-## sudo 密码与 WispTerm 密码库
+## 独立加密密码库
 
-插件不处理也不保存密码。设置 `secrets.provider: wispterm` 后，它**只读**WispTerm 的 Password Store：
+默认 `secrets.provider: local`，内置密码库采用与 WispTerm 相同的设计思路，但文件、密钥和生命周期完全独立：
+
+- `dataDir/vault.json` 保存条目名称、用户名、备注、自动化使用开关及 XChaCha20-Poly1305 加密的密码；每次更新使用随机 24 字节 nonce，并将条目名称作为认证附加数据。
+- macOS 使用独立的 **WispOps Password Store** 钥匙串项，账户按数据目录区分；Windows 使用当前用户 DPAPI 保护 `vault.key`；Linux 等其他系统使用权限为 `0600` 的独立 `vault.key`。Linux 的保护依赖文件权限，能读取密钥和密文的系统账户可解密。
+- 密码库文件权限为 `0600`，目录为 `0700`；原子替换并检测并发修改。已有加密条目缺失密钥时拒绝生成替代密钥。
+- 密码不回显；只有 SSH / sudo 执行路径解密使用，`agent: false` 的条目不能用于自动化。凭据名称、用户名和备注属于普通元数据，不要在这些字段填写密码。
+- 主机配置可显式引用 `loginSecret: local:条目名` / `sudoSecret: local:条目名`。显式 `local:` 引用也适用于保留旧 `provider: none` 或 `provider: wispterm` 的安装。
+- 备份和迁移需要同时保全密文与对应密钥。macOS 密钥与数据目录对应；Windows 密钥由原用户 DPAPI 保护，不能只复制 `vault.json` 到另一台机器便恢复使用。
+
+## 可选的 WispTerm 兼容来源
+
+只有显式设置 `secrets.provider: wispterm` 时，未带 `local:` 前缀的旧凭据引用才从 WispTerm 的 Password Store **只读**获取；不影响面板内置密码库，也不要求普通安装使用 WispTerm：
 
 - 文件：macOS `~/Library/Application Support/wispterm/passwords`，Windows `%APPDATA%\wispterm\passwords`，Linux `~/.config/wispterm/passwords`。
 - 密钥：macOS 登录钥匙串（服务 `WispTerm Password Store`，账户 `vault-key`），首次读取时系统会弹出钥匙串授权，点“始终允许”即可；Windows 用 DPAPI；Linux 读 `passwords.key`。插件**从不写入密码库，也不创建密钥**。
@@ -136,7 +161,7 @@ dsh plugin --profile web add github:wisp-science/WispOps
 
 从 Git 安装时，pnpm 会要求放行构建脚本，按提示在 profile 的 `pnpm-workspace.yaml` 中加入 `allowBuilds: { dsh-wisp-ops: true }` 后重试。本地开发可以直接执行 `dsh plugin --profile web add /path/to/WispOps`（需先 `npm install && npm run build`）。
 
-然后创建 `~/.dsh-wisp-ops/inventory.yml`，参考 [examples/inventory.yml](./examples/inventory.yml)。
+重启 Harness 后可以直接在“服务器运维”面板添加服务器，也可以创建 `~/.dsh-wisp-ops/inventory.yml`，参考 [examples/inventory.yml](./examples/inventory.yml)。升级已有本地链接安装时先运行 `npm run build`，再重启 Harness 以加载新的浏览器入口。
 
 ## 配置
 
@@ -147,7 +172,7 @@ dsh plugin --profile web add github:wisp-science/WispOps
   config:
     inventoryFile: ~/.dsh-wisp-ops/inventory.yml
     defaultPolicy: { change: ask, sudo: ask, destructive: ask }
-    secrets: { provider: wispterm, importWisptermHosts: true }
+    secrets: { provider: local, importWisptermHosts: false }
     grants: { defaultTtlMinutes: 30, maxTtlMinutes: 480, allowDestructive: false }
     bashGuard: { tools: [bash], sudo: ask, inventorySsh: deny }
     thresholds: { diskWarnPct: 80, diskCritPct: 90 }
@@ -167,9 +192,9 @@ dsh plugin --profile web add github:wisp-science/WispOps
 | `ssh.extraPath` | `/usr/local/bin`、`/usr/sbin`、`/usr/local/cuda/bin`、`/opt/slurm/bin` 等 | 非登录 shell 里找不到 `nvidia-smi` / `sinfo` 时会用到 |
 | `ssh.authFailureBlockMinutes` | 15 | 认证失败后暂停登录的时长 |
 | `limits.*` | 60s / 30min / 64KiB / 64 台 | 默认与最大超时、单流输出上限、单次最多主机数 |
-| `secrets.provider` | `none` | `wispterm` 表示从密码库取 sudo/登录密码 |
+| `secrets.provider` | `local` | 内置独立密码库；可选 `wispterm` 兼容旧引用或 `none` 禁用无前缀凭据 |
 | `thresholds.*` | 见源码 | 巡检阈值 |
-| `dataDir` | `~/.dsh-wisp-ops` | 审计日志、巡检历史、磁盘快照、探测结果 |
+| `dataDir` | `~/.dsh-wisp-ops` | 审计日志、巡检历史、磁盘快照、探测结果、面板数据及独立密码库 |
 
 ## 验收场景：“这台服务器磁盘快满了”
 

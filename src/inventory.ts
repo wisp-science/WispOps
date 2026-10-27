@@ -11,6 +11,8 @@ import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
 import { CAPABILITIES, Config } from './config.ts'
 import type { Capability, GroupSpec, HostSpec, Permission, TaskSpec } from './config.ts'
+import { managedStore } from './managed.ts'
+import type { ManagedState } from './managed.ts'
 
 /** A host with its effective policy resolved. */
 export interface Host extends HostSpec {
@@ -124,7 +126,7 @@ export class Inventory {
    * inline entries, then the inventory file. A configured host replaces an
    * imported one of the same name; two configured hosts with one name fail.
    */
-  static async load(config: Config, imported: readonly HostSpec[] = []): Promise<Inventory> {
+  static async load(config: Config, imported: readonly HostSpec[] = [], managed?: ManagedState): Promise<Inventory> {
     let configured = config.hosts
     let groups = config.groups
     let tasks = config.tasks
@@ -135,7 +137,12 @@ export class Inventory {
       tasks = [...tasks, ...file.tasks]
     }
     const names = new Set(configured.map(h => h.name))
-    return new Inventory([...imported.filter(h => !names.has(h.name)), ...configured], groups, config.defaultPolicy, tasks)
+    const state = managed ?? (await managedStore(config.dataDir).read()).value
+    const hosts = [...imported.filter(h => !names.has(h.name)), ...configured, ...state.hosts].map(h => {
+      const binding = Object.hasOwn(state.bindings, h.name) ? state.bindings[h.name] : undefined
+      return binding === undefined ? h : { ...h, ...binding }
+    })
+    return new Inventory(hosts, groups, config.defaultPolicy, [...tasks, ...state.tasks])
   }
 
   /**

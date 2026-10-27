@@ -117,7 +117,7 @@ export interface SshSpec {
 
 export interface SecretsSpec {
   /** Where sudo and login passwords come from. */
-  provider: 'none' | 'wispterm'
+  provider: 'none' | 'local' | 'wispterm'
   /** WispTerm config directory; defaults to the platform location. */
   wisptermDir?: string
   /** Add WispTerm SSH profiles to the inventory (group `wispterm`); their stored plaintext passwords are never read. */
@@ -296,10 +296,10 @@ export const Config: z<Config> = z.object({
     authFailureBlockMinutes: z.natural().default(15),
   }).default(defaultSsh()),
   secrets: z.object({
-    provider: z.union(['none', 'wispterm'] as const).default('none'),
+    provider: z.union(['none', 'local', 'wispterm'] as const).default('local'),
     wisptermDir: z.string(),
     importWisptermHosts: z.boolean().default(false),
-  }).default({ provider: 'none', importWisptermHosts: false }),
+  }).default({ provider: 'local', importWisptermHosts: false }),
   limits: z.object({
     defaultTimeoutMs: z.natural().min(1000).default(60_000),
     maxTimeoutMs: z.natural().min(1000).default(30 * 60_000),

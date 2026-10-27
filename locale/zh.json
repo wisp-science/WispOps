@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "WispOps — 多主机服务器运维",
-    "description": "在 DeepSeek Harness 中管理成批服务器：主机清单与分组、机群巡检与趋势、磁盘写满诊断、基于 OpenSSH 的批量命令。变更、sudo 与破坏性操作按主机策略、/ops-allow 限时授权或单次审批执行；sudo 密码来自 WispTerm 密码库，模型永远看不到。"
+    "description": "在 DeepSeek Harness 中管理服务器、独立加密密码库和关联服务器的例行任务。支持巡检、磁盘诊断、安全排查、批量命令及逐主机审批，无需安装 WispTerm。"
   }
 }
