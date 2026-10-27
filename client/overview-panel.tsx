@@ -49,6 +49,26 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<{ host: string; index?: number }>()
   const [generation, setGeneration] = useState(0)
+  const [inspecting, setInspecting] = useState<string>()
+  const [notice, setNotice] = useState<{ tone: 'good' | 'bad'; text: string }>()
+  const severityLabel = (severity: string) => ({ ok: tr('fleet.summary.ok'), info: tr('fleet.summary.ok'), warn: tr('fleet.summary.warn'), crit: tr('fleet.summary.crit'), unreachable: tr('fleet.summary.unreachable') } as Record<string, string>)[severity] ?? severity
+  async function inspectNow(name: string) {
+    if (inspecting) return
+    setInspecting(name); setNotice(undefined)
+    try {
+      const result = await api({ action: 'inspectNow', host: name }) as { status: string; severity: string; findings: number; error: string }
+      const ok = result.status === 'ok'
+      setNotice({ tone: ok ? 'good' : 'bad', text: ok ? tr('fleet.inspected', { p0: name, p1: result.findings ? `${severityLabel(result.severity)} · ${tr('fleet.findings.count', { p0: result.findings })}` : severityLabel(result.severity) }) : tr('fleet.inspect.failed', { p0: name, p1: result.error || severityLabel(result.severity) }) })
+      setPicked({ host: name })
+      setGeneration(g => g + 1)
+    } catch (e) { setNotice({ tone: 'bad', text: tr('fleet.inspect.failed', { p0: name, p1: e instanceof Error ? e.message : String(e) }) }) }
+    finally { setInspecting(undefined) }
+  }
+  const info = (name: string) => {
+    const host = hosts.find(h => h.name === name)
+    if (!host) return ''
+    return [`${host.user ? `${host.user}@` : ''}${host.ssh ?? host.name}${host.port && host.port !== 22 ? `:${host.port}` : ''}`, host.probe?.os, `${host.tasks.length}${tr('tasks')}`].filter(Boolean).join(' · ')
+  }
   useEffect(() => {
     let alive = true
     setLoading(true)
@@ -73,21 +93,22 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
     {error && <p role="alert" className="wo-alert">{error}</p>}
     {!data && !error && <div className="wo-empty">{tr('fleet.loading')}</div>}
     {data && !hosts.length && <div className="wo-empty">{tr('add.your.first.server')}</div>}
-    {data && hosts.length > 0 && !anyHistory && <div className="wo-empty">{tr('fleet.no.history')}</div>}
-    {data && anyHistory && <>
+    {notice && <p role="status" className={notice.tone === 'good' ? 'wo-notice' : 'wo-alert'}>{notice.text}</p>}
+    {data && hosts.length > 0 && !anyHistory && <p className="wo-section-note">{tr('fleet.no.history')}</p>}
+    {data && hosts.length > 0 && <>
       <p className="wo-section-note">{tr('fleet.matrix.hint')} <span className="wo-muted">{tr('fleet.generated', { p0: date(data.generatedAt) })}</span></p>
       <div className="wo-matrix" role="table" aria-label={tr('fleet.matrix')}>
         {data.hosts.map(host => {
           const latest = host.rows.at(-1)
           const disk = latest && latest.state !== 'unreachable' ? worstDisk(latest) : undefined
           const current = selected?.host.name === host.name
-          return <div role="row" className={`wo-matrix-row${current ? ' current' : ''}`} key={host.name}>
+          return <div role="row" className={`wo-matrix-row${current ? ' current' : ''}`} key={host.name} onClick={e => { if (!(e.target instanceof Element && e.target.closest('button'))) setPicked({ host: host.name }) }}>
             <div role="rowheader" className="wo-matrix-host"><button type="button" className="wo-text-button wo-matrix-name" onClick={() => setPicked({ host: host.name })} aria-pressed={current}><i className={`wo-dot ${host.latest}`} aria-hidden="true"/>{host.name}</button>{host.groups.length > 0 && <small>{host.groups.join(', ')}</small>}</div>
-            <div role="cell" className="wo-cells" style={{ ['--wo-columns' as string]: columns }}>
+            <div role="cell" className="wo-matrix-mid"><span className="wo-matrix-info" title={info(host.name)}>{info(host.name)}</span><div className="wo-cells" style={{ ['--wo-columns' as string]: columns }}>
               {Array.from({ length: columns - host.rows.length }, (_, i) => <span key={`pad-${i}`} className="wo-cell never" aria-hidden="true"/>)}
               {host.rows.map((row, index) => <button type="button" key={row.at} className={`wo-cell ${row.state}${current && selected?.index === index ? ' picked' : ''}`} title={`${date(row.at)} · ${stateLabel(row.state)}${row.findings.length ? ` · ${row.findings.map(f => f.code).join(', ')}` : ''}`} aria-label={`${host.name} ${date(row.at)} ${stateLabel(row.state)}`} onClick={() => setPicked({ host: host.name, index })}/>)}
-            </div>
-            <div role="cell" className="wo-matrix-latest">{latest ? latest.state === 'unreachable' ? <span className="wo-muted">{tr('fleet.summary.unreachable')}</span> : <>{disk && <span>{tr('fleet.short.disk')} <strong>{disk[1]}%</strong></span>}{latest.memAvailPct !== undefined && <span>{tr('fleet.short.mem')} <strong>{latest.memAvailPct.toFixed(0)}%</strong></span>}</> : <span className="wo-muted">{tr('fleet.summary.never')}</span>}<button type="button" className="wo-chip" onClick={() => onSelectHost(host.name)} aria-label={tr('fleet.open.server')}>↗</button></div>
+            </div></div>
+            <div role="cell" className="wo-matrix-latest">{latest ? latest.state === 'unreachable' ? <span className="wo-muted">{tr('fleet.summary.unreachable')}</span> : <>{disk && <span>{tr('fleet.short.disk')} <strong>{disk[1]}%</strong></span>}{latest.memAvailPct !== undefined && <span>{tr('fleet.short.mem')} <strong>{latest.memAvailPct.toFixed(0)}%</strong></span>}</> : <button type="button" className="wo-text-button wo-inspect-now" disabled={!!inspecting} onClick={() => void inspectNow(host.name)}>{inspecting === host.name ? tr('fleet.inspecting') : tr('fleet.inspect.now')}</button>}{latest && <button type="button" className="wo-chip" disabled={!!inspecting} title={tr('fleet.inspect.now')} aria-label={tr('fleet.inspect.host', { p0: host.name })} onClick={() => void inspectNow(host.name)}>{inspecting === host.name ? '…' : '⟳'}</button>}<button type="button" className="wo-chip" onClick={() => onSelectHost(host.name)} aria-label={tr('fleet.open.server')}>↗</button></div>
           </div>
         })}
       </div>

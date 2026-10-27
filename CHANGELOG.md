@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add two task presets: "长时间运行任务警告" lists processes and scheduler jobs running longer than a threshold and separates normal long jobs from likely-stuck ones; "低内存警告" reports MemAvailable, swap, top memory consumers and recent OOM kills against configurable thresholds.
+
+- Refresh the Updates panel with a version summary card, contextual status messages and actions, an accessible automatic-update switch, and responsive light/dark layouts.
+- Restyle Device Sync with separate connection and encryption cards, grouped backup/restore actions, cloud snapshot empty states and a clearer import comparison; adapt both settings pages to narrow panes and dark mode.
+
+- Fleet overview: clicking anywhere in a server row selects it for the trend and findings panel, not only the server name; each row shows the connection address, probed OS and linked task count; "Inspect now" (an owner-only `inspectNow` action) runs a read-only inspection of one server without sudo and records it in the inspection history, so never-inspected servers can be inspected from the panel.
+
 - Edit a server's change / sudo / destructive permissions from the panel: each capability can be set to allow, ask or deny or left inherited; overrides are stored in `managed.json` through a new owner-only `setPolicy` action, apply to same-named YAML or WispTerm hosts, and are listed in sync previews.
 
 - Separate passwords from server bindings in the management panel: the vault form only stores a credential (with a show/hide password toggle and a note-only username hint), and each server's SSH login and sudo rows link, change or clear one vault credential on their own.

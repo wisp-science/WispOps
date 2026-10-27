@@ -14,6 +14,7 @@ import type { Scheduler, ScheduledRecord } from '../src/management.ts'
 import { LocalVault, routeSecrets } from '../src/vault.ts'
 import { noSecrets } from '../src/secrets.ts'
 import { managedStore } from '../src/managed.ts'
+import { builtinTemplates } from '../src/task-library.ts'
 
 let dir: string, vault: LocalVault, service: OpsService, manager: OpsManager, records: ScheduledRecord[], scheduler: Scheduler
 const key = vi.fn(async (_dir: string, _create: boolean) => new Uint8Array(32).fill(7))
@@ -332,6 +333,17 @@ describe('fleet overview', () => {
   })
 })
 
+describe('panel inspection', () => {
+  it('inspects one server read-only without sudo and reports the outcome', async () => {
+    const inspect = vi.spyOn(service, 'inspect').mockResolvedValue({ at: '2026-10-27T08:00:00Z', counts: { ok: 0, info: 0, warn: 1, crit: 0, unreachable: 0 }, hosts: [{ host: 'a', status: 'ok', severity: 'warn', findings: [{ severity: 'warn', code: 'disk-high', message: '/ 91% used' }], durationMs: 12 }] })
+    expect(await manager.dispatch({ action: 'inspectNow', host: 'a' })).toEqual({ at: '2026-10-27T08:00:00Z', status: 'ok', severity: 'warn', findings: 1, error: '', durationMs: 12 })
+    expect(inspect.mock.calls[0]![0].map(h => h.name)).toEqual(['a'])
+    expect(inspect.mock.calls[0]![1]).toMatchObject({ sudo: false, authorization: 'read-only', tool: 'wispOps:panelInspect' })
+    await expect(manager.dispatch({ action: 'inspectNow', host: 'zz' })).rejects.toThrow('不存在')
+    expect(inspect).toHaveBeenCalledTimes(1)
+    inspect.mockRestore()
+  })
+})
 describe('real DSH Gateway', () => {
   it('dispatches an owner request over the native protocol and refuses non-owner callers', async () => {
     const ctx = new Context()
@@ -356,11 +368,11 @@ describe('independent task library', () => {
     const view = await snap()
     return manager.dispatch({ action: 'saveTask', templateId: id, templateRevision: view.templates.revision, templateValues: values, revision: view.revision, task: { name: 'linked', targets: 'a', ...task } })
   }
-  it('offers ten presets and saves custom templates with zero servers or schedules', async () => {
+  it('offers every built-in preset and saves custom templates with zero servers or schedules', async () => {
     const config = resolveConfig({ dataDir: dir, inventoryFile: join(dir, 'missing.yml'), hosts: [] })
     service = new OpsService(config, await Inventory.load(config), noSecrets)
     manager = new OpsManager(service, vault, () => scheduler)
-    expect((await snap()).templates.entries).toHaveLength(10)
+    expect((await snap()).templates.entries.map((t: any) => t.id)).toEqual(builtinTemplates(config).map(t => t.id))
     await saveTemplate()
     const view = await snap()
     expect(view.hosts).toEqual([])
@@ -431,7 +443,7 @@ describe('independent task library', () => {
       { ...template, definition: { ...template.definition, schedule: { daily: '08:30', everyMinutes: 20 } } },
     ]) await expect(saveTemplate(value as any, true)).rejects.toThrow()
     await expect(manager.dispatch({ action: 'deleteTemplate', name: 'builtin.health', revision: (await snap()).templates.revision })).rejects.toThrow('预设')
-    expect((await snap()).templates.entries).toHaveLength(11)
+    expect((await snap()).templates.entries).toHaveLength(builtinTemplates(service.config).length + 1)
   })
   it('keeps scheduler activation and sudo policy enforcement on instantiated tasks', async () => {
     await expect(associate('builtin.health', {}, { targets: 'b', sudo: true })).rejects.toThrow('禁止 sudo')
