@@ -310,7 +310,8 @@ describe('dsh-wisp-ops plugin', () => {
     const denied = await harness.call('ops_task', { name: 'denied' })
     expect(denied.isError).toBe(true)
     expect(text(denied)).toContain('deny list')
-    expect(await touched(harness)).toEqual(['web-01', 'web-02', 'web-01', 'web-02'])
+    // Hosts run concurrently, so only the multiset of connections is deterministic.
+    expect((await touched(harness)).sort()).toEqual(['web-01', 'web-01', 'web-02', 'web-02'])
     await expect(mount({ tasks: [{ name: 'bad', targets: 'web-01', playbook: 'custom', instruction: 'x', commands: ['systemctl restart nginx'] }] })).rejects.toThrow(/not read-only/)
     await expect(mount({ tasks: [{ name: 'bad', targets: 'web-01', playbook: 'custom', instruction: 'x', commands: ['sudo cat /etc/shadow'] }] })).rejects.toThrow(/not read-only/)
   })

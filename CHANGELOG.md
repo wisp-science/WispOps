@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.0 — 2026-10-27
+
 - Refuse every tool access to the data directory, inventory file and WispTerm store, not only writes: read-only shell commands such as `cat`, `base64` or `tar` that name them, or `vault.key` / `vault.json`, are denied, and any tool argument pointing into them is denied regardless of the tool's name. On Linux the vault key is a 0600 file the model's own user could read.
 - Classify truncation by redirection (`: > file`, `cat /dev/null > file`, `cp /dev/null file`), `rsync --delete`, `tar --remove-files`, moves into `/tmp`, `/var/tmp`, `/dev/shm` or `/dev/null`, `pkill` / `killall`, `kill -9` and recursive `chmod` / `chown` / `chgrp` as destructive instead of change.
 - Add `retention`: inspection history keeps `inspectionRecords` rows per host (default 1000) and monthly audit partitions older than `auditMonths` (default 12) are deleted; bounded JSON Lines files are replaced through a rename.
