@@ -354,6 +354,8 @@
     "encrypt.save.and.link": "Encrypt, save and link",
     "link.credential": "Link",
     "change.credential": "Change",
+    "test.credential": "Test",
+    "test.credential.for": "Test {p1} for {p0}",
     "link.credential.for": "Link a {p1} credential for {p0}",
     "link.role.credential": "{p0} · {p1} credential",
     "pick.one.credential.from.the.vault": "Pick one vault credential for this server's {p0}. Passwords are created and edited in the Vault tab.",

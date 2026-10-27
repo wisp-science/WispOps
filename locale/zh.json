@@ -354,6 +354,8 @@
     "encrypt.save.and.link": "加密保存并关联",
     "link.credential": "关联",
     "change.credential": "更换",
+    "test.credential": "测试",
+    "test.credential.for": "测试 {p0} 的{p1}",
     "link.credential.for": "为 {p0} 关联{p1}凭据",
     "link.role.credential": "{p0} · {p1}凭据",
     "pick.one.credential.from.the.vault": "从密码库为这台服务器的{p0}选择一条凭据。密码在「密码库」页新增和编辑。",

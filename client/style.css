@@ -71,6 +71,7 @@
 .wo-section-title{padding-top:14px;margin:16px 0 8px}
 .wo-credential-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:8px}
 .wo-credential-row>.wo-ref{margin-left:0;min-width:0}
+.wo-credential-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
 .wo-section-note{padding-bottom:0;font-size:11px}
 .wo-footer{padding-top:20px;line-height:1.7}
 .wo-sidebar .wo-content{padding:16px}

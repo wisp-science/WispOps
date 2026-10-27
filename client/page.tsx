@@ -10,7 +10,7 @@ import { OverviewPanel } from './overview-panel'
 import { TaskForm } from './task-form'
 import { TemplateForm } from './template-form'
 import type { TaskTemplate } from '../src/task-template-content'
-import { CredentialForm, RoleBindingForm, credentialRoles, roleTitle } from './credential-form'
+import { BindingTestResult, CredentialForm, RoleBindingForm, credentialRoles, roleTitle } from './credential-form'
 import type { BindingTest, CredentialTarget, Role } from './credential-form'
 
 const getPlaybooks = (): Record<string, string> => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("custom.checks") })
@@ -28,6 +28,28 @@ function RefLabel({ value }: { value: CredentialRef | null }) {
   if (!value) return <span className="wo-muted">{tr("not.linked")}</span>
   const ready = value.status === 'ready'
   return <span className="wo-ref"><span className={`wo-dot ${ready ? 'good' : 'warn'}`}/>{value.name}{!ready && <small>{({ missing: tr("missing"), disabled: tr("automation.disabled"), empty: tr("empty.password") } as Record<string, string>)[value.status]}</small>}</span>
+}
+function CredentialBindingRow({ host, role, api, busy, change }: { host: Host; role: Role; api: PageProps['api']; busy: boolean; change: () => void }) {
+  const [testing, setTesting] = useState(false)
+  const [outcome, setOutcome] = useState<{ result?: BindingTest; error?: string }>()
+  async function runTest() {
+    if (busy || testing) return
+    setTesting(true); setOutcome(undefined)
+    // Test the saved login method, including SSH keys with a dormant password reference.
+    const ref = (role === 'login' ? host.auth === 'password' ? host.loginSecret : '' : host.sudoSecret) ?? ''
+    try { setOutcome({ result: await api({ action: 'testBinding', host: host.name, role, ref }) as BindingTest }) }
+    catch (e) { setOutcome({ error: e instanceof Error ? e.message : String(e) }) }
+    finally { setTesting(false) }
+  }
+  return <div>
+    <div className="wo-credential-row"><span>{roleTitle(role)}</span><RefLabel value={host.credentials[role]}/>
+      <div className="wo-credential-actions">
+        <button type="button" className="wo-text-button" disabled={busy || testing} aria-label={tr("link.credential.for", { p0: host.name, p1: roleTitle(role) })} onClick={change}>{host.credentials[role] ? tr("change.credential") : tr("link.credential")}</button>
+        <button type="button" className="wo-text-button" disabled={busy || testing} aria-label={tr("test.credential.for", { p0: host.name, p1: roleTitle(role) })} onClick={() => void runTest()}>{testing ? tr("testing") : tr("test.credential")}</button>
+      </div>
+    </div>
+    {outcome && <BindingTestResult host={host.name} role={role} {...outcome}/>}
+  </div>
 }
 const permissionText = (value: string) => ({ ask: tr("approval.required"), allow: tr("allow"), deny: tr("deny") } as Record<string, string>)[value] ?? value
 function Field({ title, children, hint }: { title: string; children: ReactNode; hint?: string }) {
@@ -111,7 +133,7 @@ export function OpsPage(props: PageProps) {
       {tab === 'sync' && <SyncPanel api={props.api} onImported={load}/>}
       {tab === 'hosts' && <div className="wo-host-layout"><section className="wo-hosts" aria-label={tr("server.list")}>{data.hosts.filter(h => matches(`${h.name} ${h.description ?? ''} ${h.ssh ?? ''} ${h.groups.join(' ')}`)).map(h => <button key={h.name} className={`wo-host-row ${host?.name === h.name ? 'selected' : ''}`} onClick={() => setHostName(h.name)}><div className="wo-host-symbol">▤</div><div><strong>{h.name}</strong><span className="wo-mono">{h.user ? `${h.user}@` : ''}{h.ssh ?? h.name}{h.port ? `:${h.port}` : ''}</span><div className="wo-chips">{h.groups.map(g => <Badge key={g}>{g}</Badge>)}<small>{h.tasks.length} {tr("tasks")}</small></div></div><span className="wo-chevron">›</span></button>)}{!data.hosts.length && <div className="wo-empty">{tr("add.your.first.server")}<br/><small>{tr("existing.yaml.inventories.are.also.supported")}</small></div>}{data.hosts.length > 0 && !data.hosts.some(h => matches(`${h.name} ${h.description ?? ''} ${h.ssh ?? ''} ${h.groups.join(' ')}`)) && <div className="wo-empty">{tr("no.matching.servers")}</div>}</section>
       {host && <aside className="wo-detail"><div className="wo-detail-title"><div><span className="wo-eyebrow">SERVER DETAILS</span><h2>{host.name}</h2></div><Badge>{host.auth === 'password' ? tr("password.login") : tr("ssh.key")}</Badge></div>{host.description && <p className="wo-muted">{host.description}</p>}<dl className="wo-facts"><div><dt>{tr("connection.address")}</dt><dd className="wo-mono">{host.ssh ?? host.name}</dd></div><div><dt>{tr("username.port")}</dt><dd>{host.user ?? tr("ssh.configuration")} / {host.port ?? 22}</dd></div>{host.probe && <div><dt>{tr("last.probe")}</dt><dd>{host.probe.os ?? tr("unknown.system")} · {date(host.probe.at)}</dd></div>}</dl>
-        <div className="wo-section-title"><h3>{tr("linked.credentials")}</h3></div>{(['login', 'sudo'] as const).map(role => <div className="wo-credential-row" key={role}><span>{roleTitle(role)}</span><RefLabel value={host.credentials[role]}/><button className="wo-text-button" aria-label={tr("link.credential.for", { p0: host.name, p1: roleTitle(role) })} onClick={() => { setError(''); setModal({ type: 'binding', host, role }) }}>{host.credentials[role] ? tr("change.credential") : tr("link.credential")}</button></div>)}<small className="wo-muted wo-block">{tr("passwords.are.decrypted.only.for.connections")}</small>
+        <div className="wo-section-title"><h3>{tr("linked.credentials")}</h3></div>{(['login', 'sudo'] as const).map(role => <CredentialBindingRow key={JSON.stringify([host.name, role, data.revision, data.vault.revision])} host={host} role={role} api={props.api} busy={busy || loading} change={() => { setError(''); setModal({ type: 'binding', host, role }) }}/>)}<small className="wo-muted wo-block">{tr("passwords.are.decrypted.only.for.connections")}</small>
         <div className="wo-section-title"><h3>{tr("recurring.tasks.2")}<span className="wo-muted">{host.tasks.length}</span></h3><button className="wo-text-button" onClick={() => { setError(''); setModal({ type: 'picker', host: host.name }) }}>{tr("link.task.2")}</button></div>{data.tasks.filter(t => t.hosts.includes(host.name)).map(t => <button className="wo-linked-task" key={t.name} onClick={() => { setTab('tasks'); setSearch(t.name) }}><div><strong>{t.description || t.name}</strong><small>{scheduleText(t, data.timeZone)}</small></div><span className={`wo-dot ${t.scheduled.length ? 'good' : ''}`}/></button>)}{!host.tasks.length && <p className="wo-muted">{tr("select.a.template.from.the.library")}</p>}
         <div className="wo-section-title"><h3>{tr("permissions")}</h3><button className="wo-text-button" onClick={() => { setError(''); setModal({ type: 'policy', host }) }}>{tr("edit.permissions")}</button></div><div className="wo-chips">{Object.entries(host.policy).map(([key, value]) => <Badge key={key} tone={value === 'allow' ? 'good' : value === 'deny' ? 'warn' : ''}>{key} · {permissionText(value)}{host.policyOverride?.[key] !== undefined && <small> · {tr("set.in.panel")}</small>}</Badge>)}</div><small className="wo-muted wo-block">{tr("decided.by.host.group.then.default")}</small>
       </aside>}</div>}

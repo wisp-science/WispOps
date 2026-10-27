@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.1 — 2026-10-27
+
+- Add a Test button beside Change / Link in each server's SSH login and sudo credential rows, with inline progress and results so saved credentials can be verified without reopening the binding dialog.
+
 ## 0.8.0 — 2026-10-27
 
 - Tasks can run once from the panel: a "Run once" button sends the task prompt to the chosen open session immediately through the new owner-only `runTaskNow` action (the same path as `/ops-run`), and the task form offers a "Manual only" frequency that saves a task without a schedule.

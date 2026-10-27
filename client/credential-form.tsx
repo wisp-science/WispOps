@@ -55,6 +55,13 @@ export function CredentialForm({ data, entry, target, submit, busy }: {
 
 // One server, one purpose: pick a vault credential or fall back to SSH keys / passwordless sudo.
 export interface BindingTest { status: string; user: string; error: string }
+export function BindingTestResult({ host, role, result, error }: { host: string; role: Role; result?: BindingTest; error?: string }) {
+  const verdict = (value: BindingTest) => {
+    if (value.status === 'ok') return role === 'login' ? tr("login.succeeded.as", { p0: value.user, p1: host }) : tr("sudo.works.as", { p0: value.user, p1: host })
+    return ({ 'auth-failed': tr("ssh.login.failed.check.the.password"), 'sudo-required': tr("sudo.rejected.the.password.or.needs"), unreachable: tr("the.server.is.unreachable"), timeout: tr("the.connection.timed.out"), blocked: tr("logins.are.paused.after.repeated.failures") } as Record<string, string>)[value.status] ?? tr("the.test.command.failed")
+  }
+  return <div role="status" className={`wo-test-result ${result?.status === 'ok' ? 'good' : 'bad'}`}>{result ? verdict(result) : error}{result?.error && <small>{result.error}</small>}</div>
+}
 export function RoleBindingForm({ host, role, entries, submit, busy, create, test }: {
   host: Host; role: Role; entries: Credential[]; busy: boolean
   submit: (ref: string) => Promise<void>; create: () => void; test: (ref: string) => Promise<BindingTest>
@@ -70,10 +77,6 @@ export function RoleBindingForm({ host, role, entries, submit, busy, create, tes
     catch (e) { setOutcome({ ref, error: e instanceof Error ? e.message : String(e) }) }
     finally { setTesting(false) }
   }
-  const verdict = (result: BindingTest) => {
-    if (result.status === 'ok') return role === 'login' ? tr("login.succeeded.as", { p0: result.user, p1: host.name }) : tr("sudo.works.as", { p0: result.user, p1: host.name })
-    return ({ 'auth-failed': tr("ssh.login.failed.check.the.password"), 'sudo-required': tr("sudo.rejected.the.password.or.needs"), unreachable: tr("the.server.is.unreachable"), timeout: tr("the.connection.timed.out"), blocked: tr("logins.are.paused.after.repeated.failures") } as Record<string, string>)[result.status] ?? tr("the.test.command.failed")
-  }
   const legacy = current && !entries.some(e => `local:${e.name}` === current) ? current : ''
   const option = (value: string, title: string, detail?: string, badge?: string) => <label className="wo-pick-option" key={value || 'none'}>
     <input type="radio" name="ref" value={value} checked={ref === value} onChange={() => setRef(value)}/>
@@ -88,7 +91,7 @@ export function RoleBindingForm({ host, role, entries, submit, busy, create, tes
       {entries.map(e => option(`local:${e.name}`, e.name, e.username || tr("no.username.set"), e.agent ? undefined : tr("automation.disabled")))}
     </div>
     <p className="wo-muted">{entries.length ? tr("need.another.credential") : tr("the.vault.is.empty")}<button type="button" disabled={busy || testing} onClick={create}>{tr("create.a.credential.and.link.this")}</button></p>
-    {outcome && <div role="status" className={`wo-test-result ${outcome.result?.status === 'ok' ? 'good' : 'bad'}`}>{outcome.result ? verdict(outcome.result) : outcome.error}{outcome.result?.error && <small>{outcome.result.error}</small>}</div>}
+    {outcome && <BindingTestResult host={host.name} role={role} result={outcome.result} error={outcome.error}/>}
     <div className="wo-form-actions"><button type="button" disabled={busy || testing} onClick={() => void runTest()}>{testing ? tr("testing") : role === 'login' ? tr("test.login") : tr("test.sudo")}</button><button className="wo-primary" disabled={busy || testing || ref === current}>{busy ? tr("saving") : tr("save.bindings")}</button></div>
   </fieldset></form>
 }
