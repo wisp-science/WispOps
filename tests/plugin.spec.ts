@@ -41,6 +41,14 @@ async function mount(overrides: Partial<Config> = {}, answer = 'allowed-once'): 
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
     execute: async args => `wrote ${args.file_path}`,
   }))
+  // A reading tool the protect.fileTools map does not know about.
+  ctx.tools.register(defineTool({
+    name: 'peek',
+    description: 'test read',
+    parameters: { path: { type: 'string', required: true }, extra: { type: 'object', additionalProperties: true } },
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+    execute: async args => `read ${args.path}`,
+  }))
   // A stand-in local shell tool so the bash guard can be exercised.
   ctx.tools.register(defineTool({
     name: 'bash',
@@ -261,6 +269,50 @@ describe('dsh-wisp-ops plugin', () => {
     expect(b.isError).toBe(true)
     const ok = await harness.call('write', { file_path: join(tmpdir(), 'elsewhere.txt'), content: 'x' })
     expect(ok.isError).toBe(false)
+  })
+
+  it('keeps the agent from reading the vault key, ciphertext and state through any tool', async () => {
+    // Read-only shell commands used to pass; on Linux the vault key is a plain 0600 file in the data directory.
+    for (const command of [`cat ${join(harness.dataDir, 'vault.key')}`, `base64 ${join(harness.dataDir, 'vault.json')}`, `cat ${join(harness.dataDir, 'inventory.yml')}`, `tar czf /tmp/x.tgz ${harness.dataDir}`, 'cat ~/.dsh-wisp-ops/vault.key', 'cd ~/.dsh-wisp-ops && cat vault.key']) {
+      const r = await harness.call('bash', { command })
+      expect(r.isError, command).toBe(true)
+      expect(text(r)).toContain('never reads or modifies')
+    }
+    // A reading tool with no entry in protect.fileTools is caught by its arguments alone.
+    const r = await harness.call('peek', { path: join(harness.dataDir, 'vault.json') })
+    expect(r.isError).toBe(true)
+    expect(text(r)).toContain('never read or written')
+    const nested = await harness.call('peek', { path: '/etc/hostname', extra: { paths: [join(harness.dataDir, 'audit')] } })
+    expect(nested.isError).toBe(true)
+    expect((await harness.call('peek', { path: '/etc/hostname' })).isError).toBe(false)
+    expect((await harness.call('bash', { command: 'cat /etc/hostname' })).isError).toBe(false)
+    expect(harness.approval).not.toHaveBeenCalled()
+    expect(await touched(harness)).toEqual([])
+  })
+
+  it('runs a task\'s read-only commands on every target and refuses non-read or deny-listed ones', async () => {
+    // The deny list is the last word even for commands the classifier accepts as read-only.
+    harness = await mount({ denyPatterns: ['secret-file'], tasks: [
+      { name: 'cmds', targets: 'web-01,web-02', playbook: 'custom', instruction: '检查服务', commands: ['echo svc-$FAKE_HOST', 'false'] },
+      { name: 'denied', targets: 'web-01', playbook: 'custom', instruction: 'x', commands: ['ls /tmp', 'cat /etc/secret-file'] },
+    ] })
+    const r = await harness.call('ops_task', { name: 'cmds' })
+    expect(r.isError).toBe(false)
+    expect(text(r)).toContain('Read-only commands (2)')
+    expect(text(r)).toContain('svc-web-01')
+    expect(text(r)).toContain('svc-web-02')
+    expect(text(r)).not.toContain('No built-in collector')
+    const record = JSON.parse(await readFile(join(harness.dataDir, 'tasks', 'cmds.jsonl'), 'utf8')).counts
+    expect(record.commandFailed).toBe(2)
+    expect(record.incomplete).toBeUndefined()
+    expect(harness.approval).not.toHaveBeenCalled()
+    expect((await harness.call('ops_task', {})).content.map(b => b.type === 'text' ? b.text : '').join('')).toContain('cmds: custom on web-01,web-02, on demand, 2 read-only command(s)')
+    const denied = await harness.call('ops_task', { name: 'denied' })
+    expect(denied.isError).toBe(true)
+    expect(text(denied)).toContain('deny list')
+    expect(await touched(harness)).toEqual(['web-01', 'web-02', 'web-01', 'web-02'])
+    await expect(mount({ tasks: [{ name: 'bad', targets: 'web-01', playbook: 'custom', instruction: 'x', commands: ['systemctl restart nginx'] }] })).rejects.toThrow(/not read-only/)
+    await expect(mount({ tasks: [{ name: 'bad', targets: 'web-01', playbook: 'custom', instruction: 'x', commands: ['sudo cat /etc/shadow'] }] })).rejects.toThrow(/not read-only/)
   })
 
   it('submits template drafts for review without touching the library or any host', async () => {

@@ -2,156 +2,85 @@
 
 # WispOps (dsh-wisp-ops)
 
-Multi-host server operations for DeepSeek Harness, with a Desktop/Web management panel, an independent encrypted credential vault, and recurring tasks linked to servers. It also covers fleet inspection, disk diagnosis, security triage, and commands over OpenSSH. Change, sudo, and destructive actions are authorized per host. WispTerm is optional; passwords are passed directly to SSH and never returned to the page or model.
+Multi-host server operations for DeepSeek Harness: server management, an independent encrypted credential vault, per-server recurring tasks, plus inspection, disk diagnosis, security triage and fleet commands. Changes, sudo and destructive actions are authorized host by host; passwords go only to SSH, never to the page or the model. WispTerm is not required.
 
 ## Install
 
-Requirements: DeepSeek Harness `>=0.2.1-rc.3 <0.3.0` and network access to GitHub. No npm-published package, no WispTerm, and no local build are needed; the repository ships the prebuilt `lib/`.
+Requires DeepSeek Harness `>=0.2.1-rc.3 <0.3.0` and access to GitHub.
 
-### From the Harness plugin page (recommended)
+1. In Harness open **Plugins** → **＋ Add plugin** and paste `https://github.com/wisp-science/WispOps`. Enter only this address, not an npm package name.
+2. **Install source**: pick the **China mainland mirror** on networks inside China, otherwise the **official npm registry**.
+3. Click **Install** and confirm the plugin is enabled.
+4. Quit Harness completely and reopen it.
 
-1. Open DeepSeek Harness and click **Plugins** in the left sidebar.
-2. Click **+ Add plugin** and paste the GitHub repository URL:
+Upgrading: open **Updates** in the operations panel to check for and install the latest stable Release, or turn on automatic updates; restart Harness afterwards. Local development links are never overwritten. Older versions can be uninstalled and reinstalled; nothing under `~/.dsh-wisp-ops/` is deleted.
 
-   ```text
-   https://github.com/wisp-science/WispOps
-   ```
+Command-line installation, installing from a local checkout and common errors are covered in [docs/install.md](./docs/install.md) (Chinese).
 
-   Enter only this URL, not an npm package name or a registry URL.
-3. Under **Installation source**, pick the **mainland China mirror** (`registry.npmmirror.com`) on mainland networks, otherwise the **official npm registry** (`registry.npmjs.org`). Use **Custom** only for your own registry. This only controls where dependencies such as `yaml` are downloaded; the plugin itself still comes from GitHub.
-4. Click **Install**, wait for it to finish, and confirm **WispOps (dsh-wisp-ops)** is enabled in the plugin list.
-5. **Quit and reopen Harness**; the panel loads only after a restart.
-6. Open **服务器运维** (Server operations) from the left sidebar, or from a conversation's right-side **Start** page.
+## Getting started
 
-### Upgrading
+Open **Server operations** in the left sidebar (or **Start** → **Server operations** in a session's right sidebar):
 
-Open **Server operations → Updates** to check and install stable GitHub Releases, or opt in to automatic updates. Restart Harness after installation. Development links are preserved. For old versions, uninstall and reinstall from GitHub; data in `~/.dsh-wisp-ops/` is retained. See [updates and sync](./docs/operations.en.md).
+1. **Servers**: add an address, user name and port, or import hosts from `~/.ssh/config` in one step; capabilities are probed as soon as a server is saved.
+2. **Vault**: create a credential with just a name and a password. Then link it to a server's SSH login and sudo separately in the server details, testing before you save. Key-based login and passwordless sudo need no credential.
+3. **Task library**: pick a built-in template or write your own, click **Link servers**, and set what to check and when to run.
+4. **Recurring tasks**: choose the session that receives reports, click **Run once** to see the result immediately, or **Enable schedule** to run on time. Harness must stay running; tasks that missed a slot are flagged on their card.
+5. **Audit log**: review every remote command the model, the panel or a task ran, with its authorization and result.
 
-### Troubleshooting
+You can also write `~/.dsh-wisp-ops/inventory.yml` by hand; see [examples/inventory.yml](./examples/inventory.yml).
 
-| Symptom | Cause and fix |
+## What it does
+
+| Tool | Purpose |
 |---|---|
-| `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` for `dsh-wisp-ops` | 0.5.0 and earlier built on install from GitHub. 0.5.1 ships prebuilt files and no longer triggers it. Uninstall the old version and install again from the GitHub URL. |
-| Installed, but no **服务器运维** entry | Harness was not restarted, or the plugin is disabled. Enable it and fully restart. |
-| Dependency download is slow or times out | Switch **Installation source** and retry. |
-| Cannot reach `github.com` / `codeload.github.com` | Clone the repository another way and use the local install below. |
+| `ops_inspect` | Inspect load, memory, disks, systemd, GPUs, Slurm, OOM kills and more, with thresholds and a comparison to the previous run |
+| `ops_disk` | Disk diagnosis: large directories and files, whether they are held open by processes or jobs, deleted-but-open space, caches of every kind |
+| `ops_files` | Recently added files by directory and owner, recognizing sequencing and bioinformatics files and producing a cleanup plan |
+| `ops_security` | Attack triage: SSH brute force, suspicious processes and connections, odd accounts, recently changed startup entries |
+| `ops_change` | Backup, change, verify and restore on failure for files, new files and directories; rolls out host by host and stops at the first failure |
+| `ops_exec` | Fleet commands run concurrently, risk-classified before they run |
+| `ops_hosts` / `ops_history` | Capability probes; the audit log, inspection history and disk/memory trends (audit kept by month, inspections by count) |
+| `ops_task` | Run a recurring task: the built-in collector plus the task's declared read-only commands, with the previous run for comparison |
+| `ops_template_draft` | Submit a check-template draft for you to review and save in the panel; it cannot write the task library, link servers or enable schedules |
 
-## Reusable task library (0.5)
+Six skills are bundled: disk full, omics storage cleanup, security triage, daily reports, safe changes, and GPU/Slurm. See [docs/features.md](./docs/features.md).
 
-Configure templates and servers independently, then link them: **Task library → Associate servers → Save recurring task → Enable schedule**. A template may be reused with different hosts, parameters and schedules. Saving a template never connects to a server, enables a schedule or grants sudo access.
+WeCom, DingTalk, Feishu and email-gateway webhooks are supported, with problems-only delivery, delivery only when the result changes, and quiet hours; the panel follows the Harness language. **Device sync** transfers encrypted credentials, task configuration and explicitly selected SSH private keys through Nutstore WebDAV. See [notifications, changes, sync and updates](./docs/operations.en.md).
 
-Ten presets cover health, disk usage, new files, security, services, websites/TLS certificates, containers, backup freshness, log errors, and GPU/job queues. Services, websites, backups and logs ask for the specific check targets at association time. The last six use the Harness agent's read-only tools and remain subject to normal permissions; the first four use built-in collectors. Custom `ops_exec` calls do not inherit built-in collector sudo preauthorization.
+## Permissions
 
-Copy built-in presets to customize them, or create a template from scratch. **Generate in chat** in the new-template dialog sends what you have filled in to the current conversation; the agent agrees on the details with you and submits a draft through `ops_template_draft`, which appears under **Drafts to review** until you save or discard it from the prefilled form. The agent never writes the library itself. Custom templates live in `dataDir/task-templates.json`. Linked tasks store a copy of their rules: editing or deleting a template does not change existing tasks. Stop a task's schedule before editing its saved rules.
+Every command is classified as read / change / sudo / destructive and settled per host as allow, ask or deny, in the order **host policy > group > default**. By default read-only commands run immediately and everything else asks for approval each time. A server's permissions can be set to allow / ask / deny in its details, granted temporarily with `/ops-allow sudo @gpu 2h`, and revoked with `/ops-revoke all`. The model can neither read nor write the inventory, the data directory or the vault, including reading the key file through a read-only command.
 
-Schedules use the native Harness automation service and require Harness to remain running. Editing a time in the native automation page currently does not update the plugin's task definition; stop, edit and re-enable through the plugin to keep them consistent.
+The vault is encrypted with XChaCha20-Poly1305; its key lives in the macOS Keychain, Windows DPAPI or a file with mode `0600`. See [docs/security.md](./docs/security.md) (Chinese).
 
-## Management panel
+## Documentation
 
-After upgrading, rebuild and restart Harness. Open **服务器运维** (Server operations) from the right sidebar’s Start page to manage servers beside the conversation. The left sidebar and WispOps plugin details also open the full panel. Recurring tasks opened in the right sidebar default to the current conversation for reports.
+- [Installation and FAQ](./docs/install.md) (Chinese)
+- [Management panel and task library](./docs/panel.md) (Chinese)
+- [Features, skills and roadmap](./docs/features.md) (Chinese)
+- [Permission model and vault](./docs/security.md) (Chinese)
+- [Configuration and YAML tasks](./docs/config.md) (Chinese)
+- [Notifications, safe changes, device sync and updates](./docs/operations.en.md)
+- [Changelog](./CHANGELOG.md)
 
-- **Servers:** view the inventory, add hosts and inspect credentials and tasks. The SSH login and sudo rows each link one vault credential (or SSH keys / passwordless sudo) and can test it before saving; passwords themselves are created in the Vault tab.
-- **Vault:** select one or more servers and SSH / sudo purposes when creating a credential; saving also applies those associations. Cards show each host and purpose and can be searched by host. Editing can change associations while preserving the password when left blank. New SSH associations switch the host to password authentication; the form previews replacements and authentication changes. Sudo-only associations preserve SSH authentication and permissions. Usernames are metadata; connections use the host configuration. A credential cannot be deleted while a server references it.
-- **Recurring tasks:** select one or several servers, choose a playbook, report instruction, schedule and timezone, then save. Select the receiving session and enable scheduling. The task also appears in Harness's native Automation tasks page. Stop scheduling before editing or deleting a task.
-
-Panel data is stored atomically in `dataDir/managed.json`; the existing YAML and its comments remain intact. YAML tasks remain editable in their source. Panel tasks bind exact host names, and duplicate enable requests do not create duplicate schedules within one session. Without the Schedule service, definitions can still be saved and run through `/ops-run`. Harness must remain running for delivery. Management endpoints are owner-only and are not model tools. Combined credential and association saves validate both file revisions and restore the previous encrypted entry if the association write fails. The two file replacements are not crash-atomic; refresh and check associations if the process stops between them.
-
-The panel uses a compact overview and adapts to its pane width: a single column in the sidebar and two columns in a wide panel. Task cards group the playbook, hosts, schedule and actions, with expandable inspection rules.
-
-The **Fleet overview** tab (the default in the full panel) reads stored inspection history without connecting to any server: a status matrix with one square per inspection and server, colored healthy / warning / critical / unreachable, and inline SVG trend lines for the busiest mounts, available memory and CPU of the selected server, with the findings of the selected inspection. It is served by an owner-only `overview` action and shows the last 10, 30 or 90 inspections. Text trends remain available through `ops_history kind=trends`.
-
-## Automatic inspection rules (0.3)
-
-In the task editor, select hosts and a playbook, then click **自动生成巡查规则** (Generate inspection rules). The local rule generator fills a unique name, title, reporting instructions and a daily 08:30 schedule in the configured timezone. It uses stored capability probes, the latest successful inspection and configured thresholds, adding GPU, scheduler and container checks only when observed. Missing or stale observations are disclosed. Existing task identities and schedules are preserved when regenerating.
-
-Generation uses cached records by default. An optional read-only SSH probe refreshes capabilities; failures return a draft with warnings. New-file scans use confirmed shared data mounts or fall back to `/var/log`. Drafts do not save, schedule or authorize sudo automatically. This generation step does not call an LLM; Harness still writes the report when a task runs.
-
-## Tools and commands
-
-| Model tool | Purpose |
-|---|---|
-| `ops_hosts` | Inventory, policy, grants, login blocks; `probe=true` detects OS, GPUs, scheduler, privilege, docker |
-| `ops_inspect` | Read-only fleet inspection: load, CPU, memory, disks, inodes, failed units, top processes, GPUs, Slurm, OOM and kernel errors, NTP, pending reboot. Thresholds produce findings, and growth is compared with the previous run |
-| `ops_disk` | Disk-full diagnosis: largest directories and their growth, large and recently grown files, open-file holders, files in active Slurm/PBS/LSF job directories, deleted-but-open space, common caches. A second run on the same path verifies a cleanup |
-| `ops_change` | Back up listed files, new files and directories, apply, verify and restore on failure; rolls out host by host and stops at the first failure; backups are retained per host and listed by `ops_history kind=changes` |
-| `ops_exec` | Fleet command with risk classification (read / change / destructive, plus sudo); identical output is folded |
-| `ops_files` | Recent-file analysis with sequencing/bioinformatics knowledge. It covers raw data, alignments, variants, pipeline work directories, intermediates and caches. It also finds files superseded by a sibling and judges whether pipeline runs finished, then builds a cleanup plan that excludes open files and running jobs |
-| `ops_security` | Security triage: SSH brute force and logins, floods, listening services, miners, suspicious executables, mining/C2 outbound connections, persistence changes |
-| `ops_task` | Run a predefined per-server task (playbook `inspect`, `disk`, `new-files`, `security`, or `custom`) and get its data, the user's instruction, and the previous run |
-| `ops_history` | Monthly operation audit log, inspection history and disk/memory trends |
-| `ops_template_draft` | Submit a check-template draft for the user to review and save in the panel; it never writes the task library, links servers, schedules or runs anything |
-
-The model cannot invoke these human-only commands:
-
-| Command | Purpose |
-|---|---|
-| `/ops-allow <change\|sudo\|destructive\|all> <selector> [30m]` | Grant a capability on hosts for a limited time |
-| `/ops-revoke [id\|all]` | Revoke grants |
-| `/ops-grants` | Show active grants and paused logins |
-| `/ops-unblock <host\|all>` | Resume logins to a host paused after an authentication failure |
-| `/ops-inspect [selector]` | Run an inspection without the model |
-| `/ops-tasks`, `/ops-schedule <task\|all>`, `/ops-unschedule`, `/ops-run <task>` | Per-server tasks. Scheduling goes through the DSH Schedule service (Web profile); a due task wakes the session and the agent writes the report |
-
-## Notifications, sync and updates
-
-Task summaries can go to WeCom, DingTalk, Feishu or generic HTTPS webhooks, including email gateways. The Device sync panel exchanges encrypted vault credentials, panel configuration and explicitly selected SSH private keys through Nutstore/WebDAV. The Updates panel checks stable official Releases and supports opt-in automatic installation. See the [configuration and operating guide](./docs/operations.en.md) and [changelog](./CHANGELOG.md).
-
-## Permission model
-
-Capabilities and their defaults: `read` is always allowed; `change`, `sudo`, and `destructive` default to `ask`.
-
-Precedence is host policy (a per-capability override set in the panel's server details wins over the host's YAML policy), then the strictest of the host's groups, then `defaultPolicy`. A `deny` is absolute: neither approvals nor grants override it.
-
-Without a grant, an `ask` goes through the DSH approval UI for that one call. The prompt shows the hosts, the capabilities needed, the command, and the model's stated reason.
-
-Invariants:
-- Every tool call needs a single-use voucher issued by the gate. If the gate did not run, nothing executes.
-- Deny-listed commands are refused by a monotonic `ctx.tools.guard`.
-- A local `bash` call that runs `ssh`/`scp`/`rsync` to an inventory host is refused, and local `sudo` asks.
-- After an authentication failure, logins to that host pause for 15 minutes, so retries do not look like brute force.
-
-## Passwords
-
-The default `secrets.provider: local` uses WispOps's own `dataDir/vault.json`, encrypted with XChaCha20-Poly1305, random nonces and entry names as authenticated data. The key belongs to the independent **WispOps Password Store** macOS Keychain service, Windows user-scoped DPAPI, or an owner-only `vault.key` file on Linux. Data files use mode `0600`, with atomic writes and revision checks. Linux protection depends on filesystem permissions; someone who can read both key and ciphertext can decrypt the vault. Backups and migrations must preserve the corresponding key as well as the encrypted file; macOS keys are associated with the data directory and Windows keys with the original OS user.
-
-Explicit `local:<entry name>` references use this vault regardless of the configured legacy provider. Optional `secrets.provider: wispterm` reads WispTerm's existing store for unprefixed references without writing to it. Entries with automation access disabled are refused. Passwords are never shown in edit forms; leaving the password blank preserves it. Names, usernames and notes are ordinary metadata and must not contain secrets.
-
-Hosts reference entries in two ways:
-- `sudoSecret` names the sudo credential. A blank username keeps the SSH login account; a different username uses that credential for a separate SSH connection and sudo authentication, without changing normal logins. The account must allow SSH access and have sudo permission. The remote wrapper reads the password with `read`, pipes it into `sudo -S -v`, then runs `sudo -n` under the same parent shell so parent-scoped timestamps remain valid. `sudoUser` still selects the final run-as identity (root by default).
-- `auth: password` plus `loginSecret` enables password login through a one-shot askpass (OpenSSH 8.4 or later).
-
-Passwords never appear in SSH process arguments, model tool results, or the operations audit log, and any echo of one is redacted.
-
-## Tasks and skills
-
-Define per-server tasks under `tasks:` in the inventory; see [examples/inventory.yml](./examples/inventory.yml). Each task takes a `daily`, `weekdays`, `cron`, or `everyMinutes` schedule. Setting `sudo: true` on a task pre-authorizes sudo for its read-only collector only.
-
-Six bundled skills ship with the plugin: `wisp-disk-full`, `wisp-omics-cleanup`, `wisp-security-triage`, `wisp-daily-report`, `wisp-safe-change`, and `wisp-hpc-gpu`.
-
-The agent cannot edit the inventory, the data directory, or the WispTerm store, through either file tools or bash.
-
-## Command-line and local installs
+## Development
 
 ```bash
-dsh plugin --profile desktop add github:wisp-science/WispOps
+npm install
+npm test
+npm run typecheck
+npm run build
 ```
 
-`desktop` is the usual desktop profile; Web installs usually use `web`. Restart Harness afterwards.
-
-For development, link a local checkout:
-
-```bash
-npm install && npm run build
-dsh plugin --profile desktop add "$(pwd)"
-```
-
-A linked install needs `npm run build` and a Harness restart after each source change. Add servers in the management panel, or create `~/.dsh-wisp-ops/inventory.yml`; see [examples/inventory.yml](./examples/inventory.yml). Configuration keys are listed in [docs/config.md](./docs/config.md) (Chinese) and in `src/config.ts`.
+`lib/` is tracked in Git so GitHub installations need no build. After changing `src/` or `client/`, run `npm run build` and commit `lib/` with the change. `tests/fixtures/fake-ssh.sh` stands in for remote commands on the local machine.
 
 ## Limits
 
-- Target hosts are assumed to be GNU/Linux.
-- A timed-out remote command may still be running.
-- The management panel follows the Harness English/Chinese locale. Saved user content keeps its original language. YAML-owned tasks are edited in YAML. A scheduled task must be stopped before its definition can be edited in the panel.
-- `ops_change` restores listed paths only; unlisted side effects are outside its recovery scope. WebDAV sync replaces snapshots explicitly and does not merge in the background.
+- Targets are treated as GNU/Linux; Windows targets are not supported.
+- External notifications carry the collector summary; a `custom` task without `commands` still needs the model to collect evidence, and never pretends to be a finished report.
+- Scheduling depends on Harness staying open with the report session loaded; missed slots are not run automatically, the panel only flags likely missed runs (cron schedules are not evaluated).
+- Managed changes restore only the listed paths; device sync is a manually triggered snapshot replacement; updates need a restart after installation.
 
-MIT licensed.
+## License
+
+MIT

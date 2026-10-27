@@ -5,7 +5,7 @@
  * @module dsh-wisp-ops/store
  */
 
-import { appendFile, mkdir, open, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DiskSnapshot } from './collectors/disk.ts'
 import type { HostProbe } from './collectors/probe.ts'
@@ -108,8 +108,25 @@ export async function* reverseJsonLines<T>(path: string): AsyncGenerator<T> {
   } finally { await file.close() }
 }
 
+export interface StoreRetention {
+  /** Inspection records kept per host. */
+  readonly inspectionRecords: number
+  /** Monthly audit partitions kept, counting the current one; 0 keeps all. */
+  readonly auditMonths: number
+}
+
+export const DEFAULT_RETENTION: StoreRetention = { inspectionRecords: 1000, auditMonths: 12 }
+
+/** First month that `auditMonths` retention keeps, as `YYYY-MM`. */
+export function auditCutoffMonth(auditMonths: number, now: Date): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (auditMonths - 1), 1))
+  return d.toISOString().slice(0, 7)
+}
+
 export class OpsStore {
-  constructor(private readonly dir: string) {}
+  private prunedFor: string | undefined
+
+  constructor(private readonly dir: string, private readonly retention: StoreRetention = DEFAULT_RETENTION) {}
 
   private async ensure(sub = ''): Promise<string> {
     const path = join(this.dir, sub)
@@ -117,9 +134,34 @@ export class OpsStore {
     return path
   }
 
+  /** Replace a JSON Lines file with the newest `keep` rows plus `row`, through a rename so readers never see a torn file. */
+  private async writeBounded<T>(file: string, rows: readonly T[], row: T, keep: number): Promise<void> {
+    const kept = [...rows.slice(-(Math.max(1, keep) - 1)), row]
+    const tmp = `${file}.${process.pid}.${Date.now().toString(36)}.tmp`
+    await writeFile(tmp, kept.map(r => JSON.stringify(r)).join('\n') + '\n', { mode: 0o600 })
+    await rename(tmp, file)
+  }
+
   async audit(entry: AuditEntry): Promise<void> {
     const month = new Date(entry.at).toISOString().slice(0, 7)
-    await appendFile(join(await this.ensure('audit'), `${month}.jsonl`), `${JSON.stringify(entry)}\n`, { mode: 0o600 })
+    const dir = await this.ensure('audit')
+    await appendFile(join(dir, `${month}.jsonl`), `${JSON.stringify(entry)}\n`, { mode: 0o600 })
+    if (this.retention.auditMonths > 0 && this.prunedFor !== month) {
+      this.prunedFor = month
+      await this.pruneAudit(new Date(entry.at))
+    }
+  }
+
+  /** Delete monthly audit partitions older than the retention window; the legacy `audit.jsonl` is left alone. */
+  async pruneAudit(now = new Date()): Promise<string[]> {
+    if (this.retention.auditMonths <= 0) return []
+    const cutoff = auditCutoffMonth(this.retention.auditMonths, now)
+    const names = (await readdir(join(this.dir, 'audit')).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [] as string[]
+      throw error
+    })).filter(name => /^\d{4}-\d{2}\.jsonl$/.test(name) && name.slice(0, 7) < cutoff)
+    for (const name of names) await rm(join(this.dir, 'audit', name), { force: true })
+    return names
   }
 
   async readAudit(filter: { hosts?: ReadonlySet<string>; sinceMs?: number; limit: number }): Promise<AuditEntry[]> {
@@ -141,8 +183,15 @@ export class OpsStore {
     return rows.reverse()
   }
 
+  /** Append one inspection, keeping only the newest `retention.inspectionRecords` per host. */
   async appendHistory(host: string, record: HistoryRecord): Promise<void> {
-    await appendFile(join(await this.ensure('inspections'), `${host}.jsonl`), `${JSON.stringify(record)}\n`, { mode: 0o600 })
+    const file = join(await this.ensure('inspections'), `${host}.jsonl`)
+    const rows = await readJsonLines<HistoryRecord>(file)
+    if (rows.length + 1 <= this.retention.inspectionRecords) {
+      await appendFile(file, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+      return
+    }
+    await this.writeBounded(file, rows, record, this.retention.inspectionRecords)
   }
 
   async readHistory(host: string, limit: number): Promise<HistoryRecord[]> {
@@ -167,12 +216,9 @@ export class OpsStore {
   }
 
   async saveDiskSnapshot(host: string, snapshot: DiskSnapshot): Promise<void> {
-    const dir = await this.ensure('disk')
-    const file = join(dir, `${host}.jsonl`)
+    const file = join(await this.ensure('disk'), `${host}.jsonl`)
     // Keep a bounded tail so the file never grows without limit.
-    const rows = (await readJsonLines<DiskSnapshot>(file)).slice(-49)
-    rows.push(snapshot)
-    await writeFile(file, rows.map(row => JSON.stringify(row)).join('\n') + '\n', { mode: 0o600 })
+    await this.writeBounded(file, await readJsonLines<DiskSnapshot>(file), snapshot, 50)
   }
 
   async probes(): Promise<Record<string, HostProbe>> {
@@ -203,9 +249,7 @@ export class OpsStore {
 
   async appendBounded<T>(sub: string, key: string, row: T, keep = 200): Promise<void> {
     const file = join(await this.ensure(sub), `${key}.jsonl`)
-    const rows = (await readJsonLines<T>(file)).slice(-(keep - 1))
-    rows.push(row)
-    await writeFile(file, rows.map(r => JSON.stringify(r)).join('\n') + '\n', { mode: 0o600 })
+    await this.writeBounded(file, await readJsonLines<T>(file), row, keep)
   }
 
   async readBounded<T>(sub: string, key: string): Promise<T[]> {

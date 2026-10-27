@@ -30,9 +30,11 @@ notifications:
 ```yaml
 notify: [team, email]
 notifyOnlyProblems: true
+notifyOnChange: true
+quietHours: { start: "22:00", end: "08:00" }
 ```
 
-`notifyOnlyProblems` 为 true 时只投递警告、严重问题、不可达或未完成的采集；省略时每次投递。通用 webhook 接收 `{"title":"WispOps","markdown":"…"}`，配置 `secretEnv` 时使用 Bearer token。它可连接邮件网关，但插件不提供 SMTP 服务。
+`notifyOnlyProblems` 为 true 时只投递警告、严重问题、不可达、未完成的采集或退出码非 0 的任务命令；省略时每次投递。`notifyOnChange` 为 true 时，只有问题计数与上一次运行不同才投递（首次运行总会投递），同样的告警不会每天刷屏。`quietHours` 指定本地时间窗口（可跨午夜，时区默认取任务调度时区，再取插件时区），窗口内的投递记为 `skipped`，不会延后补发；报告仍会送到 DSH 会话。面板的任务编辑器提供这三项开关。通用 webhook 接收 `{"title":"WispOps","markdown":"…"}`，配置 `secretEnv` 时使用 Bearer token。它可连接邮件网关，但插件不提供 SMTP 服务。
 
 通知在任务记录保存后发送，内容是采集器摘要，不是后续模型生成的完整报告。`custom` 仍需模型自行采集，因此摘要标记 `incomplete`，不代表已经检查通过。每个请求有 10 秒期限，不跟随重定向、不自动重试；失败保留在 `dataDir/notifications/<task>.jsonl`（最近 90 次）和任务结果中，巡检数据不会丢失。摘要按 UTF-8 字节截断，不包含 webhook 地址、签名或服务端响应内容。配置通知表示允许向该渠道发送主机名称、路径和诊断摘要。
 
@@ -76,7 +78,7 @@ notifyOnlyProblems: true
 
 ## 审计与趋势
 
-新审计条目保存在 `dataDir/audit/YYYY-MM.jsonl`，按 UTC 月分区。旧 `audit.jsonl` 保留并兼容查询，无需迁移。查询从文件末尾按块读取、达到数量上限后停止；月份用于跳过无关分区。旧格式的历史仍可查询。没有自动删除历史月份，长期归档与保留期限由部署者决定。
+新审计条目保存在 `dataDir/audit/YYYY-MM.jsonl`，按 UTC 月分区。旧 `audit.jsonl` 保留并兼容查询，无需迁移。查询从文件末尾按块读取、达到数量上限后停止；月份用于跳过无关分区。`retention.auditMonths`（默认 12，含当月）决定保留的月份数，更早的月份文件在写入新条目时删除，0 为永久保留；旧的单文件 `audit.jsonl` 不会被清理。巡检历史每台服务器保留 `retention.inspectionRecords` 条（默认 1000），写入新记录时裁剪最旧的。面板的 **操作审计** 标签页按服务器和时间范围展示同一份审计（最多 500 条，命令截断到 400 字符），由只向宿主所有者开放的 `auditLog` 动作提供。
 
 `ops_history kind="trends" targets="web-01" limit=10` 输出最近成功巡检的磁盘占用率、可用内存百分比序列和百分点变化；失败采样不被当作零值。这里提供文本趋势，尚无交互图表。
 

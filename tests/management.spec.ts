@@ -599,3 +599,64 @@ describe('independent task library', () => {
     await expect(manager.dispatch({ action: 'saveTask', edit: true, revision: await revision(), task: service.inventory.tasks.get('linked') })).rejects.toThrow('停用')
   })
 })
+
+describe('onboarding and audit', () => {
+  const FIXTURES = join(import.meta.dirname, 'fixtures')
+  async function fakeSshManager(extra: Record<string, unknown> = {}) {
+    const sshConfig = join(dir, 'ssh_config')
+    await writeFile(sshConfig, 'Host web-01 web-02\n  HostName 10.0.0.1\n  User deploy\nHost a\n  HostName 192.0.2.1\nHost prod-*\n  User x\n')
+    process.env.FAKE_SSH_LOG = join(dir, 'ssh.log')
+    process.env.FAKE_BIN = join(FIXTURES, 'bin')
+    const config = resolveConfig({ dataDir: dir, inventoryFile: join(dir, 'inventory.yml'), sshConfigFile: sshConfig, hosts: [{ name: 'a', ssh: '192.0.2.1' }], ssh: { binary: join(FIXTURES, 'fake-ssh.sh'), connectTimeoutSec: 5, controlPersistSec: 0, extraArgs: [], concurrency: 4, loadProfile: false, extraPath: [], authFailureBlockMinutes: 15 }, ...extra })
+    const local = new OpsService(config, await Inventory.load(config), routeSecrets(vault, noSecrets))
+    await local.refresh()
+    return { local, localManager: new OpsManager(local, vault, () => scheduler) }
+  }
+
+  it('lists ssh_config aliases, imports the chosen ones through their alias and probes them', async () => {
+    const { local, localManager } = await fakeSshManager()
+    const listed = await localManager.dispatch({ action: 'sshConfigHosts' }) as any
+    expect(listed.path).toBe(join(dir, 'ssh_config'))
+    expect(listed.hosts).toEqual([
+      { alias: 'web-01', name: 'web-01', target: 'deploy@10.0.0.1', source: join(dir, 'ssh_config'), existing: false },
+      { alias: 'web-02', name: 'web-02', target: 'deploy@10.0.0.1', source: join(dir, 'ssh_config'), existing: false },
+      { alias: 'a', name: 'a', target: '192.0.2.1', source: join(dir, 'ssh_config'), existing: true },
+    ])
+    await expect(localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['nope'], revision: (await localManager.dispatch({ action: 'snapshot' }) as any).revision })).rejects.toThrow('nope')
+    await expect(localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['a'], revision: (await localManager.dispatch({ action: 'snapshot' }) as any).revision })).rejects.toThrow('已存在')
+    const imported = await localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['web-01', 'web-02', 'a'], revision: (await localManager.dispatch({ action: 'snapshot' }) as any).revision }) as any
+    expect(imported.added).toEqual(['web-01', 'web-02'])
+    expect(imported.skipped).toBe(1)
+    expect(local.inventory.hosts.get('web-01')).toMatchObject({ groups: ['ssh-config'], description: 'ssh_config web-01 → deploy@10.0.0.1' })
+    expect(local.inventory.hosts.get('web-01')?.ssh).toBeUndefined()
+    expect(JSON.parse(await readFile(join(dir, 'managed.json'), 'utf8')).hosts.map((h: any) => h.name)).toEqual(['web-01', 'web-02'])
+    const probed = await localManager.dispatch({ action: 'probeHosts', hosts: ['web-01', 'web-02'] }) as any
+    expect(probed.results.map((r: any) => r.host)).toEqual(['web-01', 'web-02'])
+    expect(probed.results[0].probe).toMatchObject({ scheduler: expect.any(String), privilege: expect.any(String) })
+    expect((await localManager.dispatch({ action: 'snapshot' }) as any).hosts.find((h: any) => h.name === 'web-01').probe).toMatchObject({ at: expect.any(String) })
+    await expect(localManager.dispatch({ action: 'probeHosts', hosts: ['missing'] })).rejects.toThrow('有效')
+    await expect(localManager.dispatch({ action: 'probeHosts', hosts: [] })).rejects.toThrow('有效')
+  })
+
+  it('serves the audit log to the panel, bounded and filtered, and flags missed scheduled runs', async () => {
+    const { local, localManager } = await fakeSshManager()
+    await local.store.audit({ at: '2026-10-20T00:00:00Z', host: 'a', tool: 'ops_exec', risk: 'change', sudo: true, authorization: 'approval', command: 'x'.repeat(1000), reason: 'r'.repeat(500), status: 'ok', exitCode: 0, durationMs: 5 })
+    await local.store.audit({ at: new Date().toISOString(), host: 'a', tool: 'ops_inspect', risk: 'read', sudo: false, authorization: 'read-only', command: 'inspect', status: 'ok', exitCode: 0, durationMs: 5 })
+    const all = await localManager.dispatch({ action: 'auditLog' }) as any
+    expect(all.rows).toHaveLength(2)
+    expect(all.rows[0].command).toHaveLength(401)
+    expect(all.rows[0].reason).toHaveLength(300)
+    expect(all.retentionMonths).toBe(12)
+    expect((await localManager.dispatch({ action: 'auditLog', host: 'a', sinceHours: 1, limit: 1 }) as any).rows.map((r: any) => r.tool)).toEqual(['ops_inspect'])
+    await expect(localManager.dispatch({ action: 'auditLog', host: 'missing' })).rejects.toThrow('不存在')
+    await localManager.dispatch({ action: 'saveTask', revision: (await localManager.dispatch({ action: 'snapshot' }) as any).revision, task: { name: 'morning', targets: 'a', playbook: 'inspect', schedule: { daily: '00:00', timeZone: 'UTC' } } })
+    expect((await localManager.dispatch({ action: 'snapshot' }) as any).tasks[0]).toMatchObject({ missed: false })
+    await localManager.dispatch({ action: 'scheduleTask', name: 'morning', sessionId: 'session', enabled: true })
+    const view = (await localManager.dispatch({ action: 'snapshot' }) as any).tasks[0]
+    // Enabled with no run recorded: missed once today's 00:00 UTC slot is more than 30 minutes old.
+    expect(view.dueAt).toBe(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z')
+    expect(view.missed).toBe(Date.now() - Date.parse(view.dueAt) > 30 * 60_000)
+    await local.store.appendBounded('tasks', 'morning', { at: new Date().toISOString(), hosts: ['a'], playbook: 'inspect', counts: {}, excerpt: '' }, 90)
+    expect((await localManager.dispatch({ action: 'snapshot' }) as any).tasks[0]).toMatchObject({ missed: false, lastRun: expect.any(String) })
+  })
+})

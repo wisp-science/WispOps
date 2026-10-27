@@ -75,7 +75,7 @@ export class OpsService {
     readonly imported: readonly HostSpec[] = [],
   ) {
     this.runner = new SshRunner(config.ssh, config.limits.maxOutputBytes, config.dataDir)
-    this.store = new OpsStore(config.dataDir)
+    this.store = new OpsStore(config.dataDir, config.retention)
   }
 
   /**

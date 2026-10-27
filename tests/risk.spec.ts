@@ -65,6 +65,18 @@ describe('classifyCommand', () => {
     'python3 -c "import shutil; shutil.rmtree(\'/data/x\')"',
     'bash -c \'rm -f /tmp/a\'',
     'git reset --hard HEAD~1',
+    ': > /var/log/syslog',
+    '> /var/log/nginx/access.log',
+    'cat /dev/null > /var/log/syslog',
+    'cp /dev/null /var/log/auth.log',
+    'rsync -a --delete /src/ /dst/',
+    'tar --remove-files -cf /backup/a.tar /data/a',
+    'mv /data/project /tmp/',
+    'pkill -9 -f python',
+    'killall java',
+    'kill -9 1234',
+    'chmod -R 000 /data/shared',
+    'chown -R alice:alice /home/alice',
   ])('destructive: %s', command => {
     expect(level(command)).toBe('destructive')
   })
@@ -75,6 +87,14 @@ describe('classifyCommand', () => {
     expect(classifyCommand('sudo -u postgres psql').elevates).toBe(true)
     expect(classifyCommand('su -').level).toBe('change')
     expect(classifyCommand('df -h').elevates).toBe(false)
+  })
+
+  it('keeps ordinary writes at change rather than destructive', () => {
+    for (const command of ['grep error log > /tmp/out.txt', 'echo "x" > /etc/motd', 'mv /var/log/big.log /data/', 'kill 1234', 'chmod 600 /etc/app.conf', 'rsync -a /src/ /dst/', 'tar -cf a.tar dir']) {
+      expect(classifyCommand(command).level, command).toBe('change')
+    }
+    expect(classifyCommand('cmd 2>/dev/null | head').level).toBe('change')
+    expect(classifyCommand('du -sh /data 2>/dev/null').level).toBe('read')
   })
 
   it('accepts deployment-configured read programs', () => {

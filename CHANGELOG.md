@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Refuse every tool access to the data directory, inventory file and WispTerm store, not only writes: read-only shell commands such as `cat`, `base64` or `tar` that name them, or `vault.key` / `vault.json`, are denied, and any tool argument pointing into them is denied regardless of the tool's name. On Linux the vault key is a 0600 file the model's own user could read.
+- Classify truncation by redirection (`: > file`, `cat /dev/null > file`, `cp /dev/null file`), `rsync --delete`, `tar --remove-files`, moves into `/tmp`, `/var/tmp`, `/dev/shm` or `/dev/null`, `pkill` / `killall`, `kill -9` and recursive `chmod` / `chown` / `chgrp` as destructive instead of change.
+- Add `retention`: inspection history keeps `inspectionRecords` rows per host (default 1000) and monthly audit partitions older than `auditMonths` (default 12) are deleted; bounded JSON Lines files are replaced through a rename.
+- Tasks and templates can declare read-only `commands` that the built-in collector runs on every target before the report, so a `custom` task no longer depends on the model collecting evidence. Commands are validated as read-only with the `ops_exec` classifier at save and load time, checked against the deny list, and a non-zero exit counts as `commandFailed`. `ops_template_draft` accepts them; `{{key}}` placeholders are inserted as one quoted shell word.
+- Notifications gain `notifyOnChange` (deliver only when the problem counts differ from the previous run) and `quietHours` (a local window, possibly across midnight, with no external delivery); both are editable in the task form.
+- Show the last run on enabled task cards and flag daily, weekly and interval tasks as "missed run" when the latest slot passed 30 minutes ago with no run recorded; cron schedules are not evaluated.
+- Import hosts from `~/.ssh/config` (and its `Include` files; `sshConfigFile` sets the path) through a new owner-only `sshConfigHosts` / `importSshConfigHosts` pair: literal `Host` aliases join the `ssh-config` group and connect through their alias. Adding or importing servers probes them immediately, server details show the probed capabilities with a "Probe now" button (`probeHosts` action).
+- Add an **Audit log** tab backed by an owner-only `auditLog` action: the same records `ops_history kind=operations` returns, filtered by server and window, with retention shown.
+- Rewrite the English README to mirror the Chinese one.
+
 ## 0.9.1 — 2026-10-27
 
 - Use the sudo credential’s username to select its SSH account independently of the normal login account; preserve existing logins when the username matches or is blank, show the account in the panel, and distinguish SSH authentication failures in sudo tests. The account must allow SSH login and have sudo permission.

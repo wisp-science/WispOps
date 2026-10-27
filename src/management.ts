@@ -15,7 +15,10 @@ import type { CredentialInput, LocalVault } from './vault.ts'
 import { listVault, wisptermConfigDir } from './wispterm.ts'
 import { draftTask } from './task-draft.ts'
 import { builtinTemplates, templateDraftStore, templateStore, validateTemplate } from './task-library.ts'
-import { renderTemplate } from './task-template-content.ts'
+import { renderTemplate, renderTemplateCommands } from './task-template-content.ts'
+import { describeSshConfigHost, inventoryNameFor, loadSshConfigHosts, sshConfigHostSpec } from './ssh-config.ts'
+import { missedRun } from './schedule.ts'
+import type { MissedRun } from './schedule.ts'
 import { OpsSync } from './sync.ts'
 import { OpsUpdates } from './updates.ts'
 import { buildOverview, overviewLimit } from './overview.ts'
@@ -54,11 +57,29 @@ export class OpsManager {
     this.drafts = templateDraftStore(service.config.dataDir)
     this.sync = new OpsSync(service, vault, async () => (await this.scheduleRecords()).some(r => r.title.startsWith(SCHEDULE_TITLE_PREFIX) && r.status === 'active'))
   }
-  /** Serialize writes spanning credentials, bindings, and scheduler membership. */
+  /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups bypass the queue. */
   dispatch(value: unknown): Promise<unknown> {
-    const next = this.pending.then(() => this.handle(object(value)))
+    const request = object(value)
+    if (request.action === 'probeHosts' || request.action === 'auditLog') return this.handle(request)
+    const next = this.pending.then(() => this.handle(request))
     this.pending = next.catch(() => {})
     return next
+  }
+  /** Owner-initiated capability probe of a few servers, read-only and without sudo; results join the saved probes. */
+  private async probeHosts(request: Request) {
+    if (!Array.isArray(request.hosts) || request.hosts.length === 0 || request.hosts.length > 64 || request.hosts.some(name => typeof name !== 'string' || !this.service.inventory.hosts.has(name))) throw new Error('请选择有效的服务器。')
+    const hosts = this.service.select([...new Set(request.hosts as string[])].join(','))
+    const results = await this.service.probe(hosts, { tool: 'wispOps:probeHosts' })
+    return { results: results.map(r => ({ host: r.host, status: r.status, ...r.probe === undefined ? {} : { probe: r.probe }, error: r.error ?? '' })) }
+  }
+  /** The audit log the model sees through ops_history, for the panel: bounded rows, newest last, no secrets. */
+  private async auditLog(request: Request) {
+    const host = request.host === undefined || request.host === '' ? undefined : request.host
+    if (host !== undefined && (typeof host !== 'string' || !this.service.inventory.hosts.has(host))) throw new Error('服务器不存在。')
+    const limit = Math.min(Math.max(Math.trunc(Number(request.limit ?? 100)) || 100, 1), 500)
+    const sinceHours = Math.min(Math.max(Number(request.sinceHours ?? 24 * 30) || 24 * 30, 1), 24 * 366)
+    const rows = await this.service.store.readAudit({ ...host === undefined ? {} : { hosts: new Set([host]) }, sinceMs: Date.now() - sinceHours * 3_600_000, limit })
+    return { rows: rows.map(r => ({ ...r, command: r.command.length > 400 ? `${r.command.slice(0, 400)}…` : r.command, ...r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) } })), limit, sinceHours, retentionMonths: this.service.config.retention.auditMonths }
   }
   private async scheduleRecords(): Promise<ScheduledRecord[]> {
     return await this.scheduler()?.catalog() ?? []
@@ -78,6 +99,8 @@ export class OpsManager {
     const action = string(request, 'action')
     if (action === 'snapshot') return this.snapshot()
     if (action === 'overview') return this.overview(request)
+    if (action === 'probeHosts') return this.probeHosts(request)
+    if (action === 'auditLog') return this.auditLog(request)
     if (['updateStatus', 'updateSettings', 'updateCheck', 'updateInstall'].includes(action)) {
       if (!this.updates) throw new Error('Update service is unavailable')
       return this.updates.dispatch(action, request)
@@ -278,7 +301,7 @@ export class OpsManager {
       if (action === 'addHost') {
         if (host.name === 'all' || this.service.inventory.hosts.has(host.name)) throw new Error('服务器名称已存在或为保留名称。')
         await this.update(string(request, 'revision'), state => { state.hosts.push(host) })
-        return { message: '服务器已添加，可在详情中关联密码库。' }
+        return { message: '服务器已添加，可在详情中关联密码库。', added: [host.name] }
       }
       // The name keys bindings, policies, tasks and history, so it never changes; neither do fields the form does not show.
       await this.update(string(request, 'revision'), state => {
@@ -294,6 +317,35 @@ export class OpsManager {
       // A login pause was about the old destination.
       this.service.runner.guard.clear(host.name)
       return { message: '服务器已更新，下次连接即生效。' }
+    }
+    if (action === 'sshConfigHosts') {
+      // Candidates only: nothing is added until the owner picks aliases in importSshConfigHosts.
+      const { path, hosts } = await loadSshConfigHosts(this.service.config.sshConfigFile)
+      return {
+        path,
+        hosts: hosts.map(h => {
+          const name = inventoryNameFor(h.alias)
+          return { alias: h.alias, name, target: describeSshConfigHost(h), source: h.source, existing: this.service.inventory.hosts.has(name) || [...this.service.inventory.hosts.values()].some(x => x.ssh === h.alias) }
+        }),
+      }
+    }
+    if (action === 'importSshConfigHosts') {
+      if (!Array.isArray(request.aliases) || request.aliases.length === 0 || request.aliases.length > 200 || request.aliases.some(a => typeof a !== 'string')) throw new Error('请选择要导入的 ssh_config 主机。')
+      const wanted = new Set(request.aliases as string[])
+      const { hosts } = await loadSshConfigHosts(this.service.config.sshConfigFile)
+      const specs = hosts.filter(h => wanted.has(h.alias)).map(sshConfigHostSpec)
+      const missing = [...wanted].filter(alias => !hosts.some(h => h.alias === alias))
+      if (missing.length) throw new Error(`ssh_config 中没有这些主机：${missing.join('、')}，请刷新后重试。`)
+      const added: string[] = []
+      await this.update(string(request, 'revision'), state => {
+        for (const spec of specs) {
+          if (spec.name === 'all' || this.service.inventory.hosts.has(spec.name) || state.hosts.some(h => h.name === spec.name)) continue
+          state.hosts.push(spec)
+          added.push(spec.name)
+        }
+        if (!added.length) throw new Error('所选主机都已存在于清单中。')
+      })
+      return { message: `已从 ssh_config 导入 ${added.length} 台服务器，连接仍使用 ssh_config 中的别名和密钥。`, added, skipped: specs.length - added.length }
     }
     if (action === 'deleteHost') {
       const name = string(request, 'name')
@@ -316,11 +368,13 @@ export class OpsManager {
         if (library.revision !== string(request, 'templateRevision')) throw new Error('任务库已更新，请刷新后重新关联。')
         const template = [...builtinTemplates(this.service.config), ...library.value.entries].find(t => t.id === string(request, 'templateId'))
         if (!template) throw new Error('模板已不存在，请刷新任务库。')
-        const instruction = renderTemplate(template, object(request.templateValues ?? {}) as Record<string, string>)
+        const values = object(request.templateValues ?? {}) as Record<string, string>
+        const instruction = renderTemplate(template, values)
+        const commands = renderTemplateCommands(template, values)
         if (input.instruction !== undefined && typeof input.instruction !== 'string') throw new Error('报告要求格式不正确。')
         // Copy the trusted definition. Template changes never modify an existing task.
-        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours', 'notify', 'notifyOnlyProblems'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
-          template: template.id, instruction: instruction + (input.instruction ? `\n补充要求：${input.instruction}` : '') }
+        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours', 'notify', 'notifyOnlyProblems', 'notifyOnChange', 'quietHours'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
+          template: template.id, instruction: instruction + (input.instruction ? `\n补充要求：${input.instruction}` : ''), ...commands.length ? { commands } : {} }
       } else if (request.edit !== true) {
         delete input.template
       }
@@ -415,7 +469,16 @@ export class OpsManager {
       try { external = await listVault(expandHome(this.service.config.secrets.wisptermDir ?? wisptermConfigDir())) }
       catch { warnings.push('无法读取可选的 WispTerm 密码库，内置密码库仍可使用。') }
     }
-    const tasks = [...this.service.inventory.tasks.values()].map(t => ({ ...t, hosts: this.service.inventory.select(t.targets).map(h => h.name), editable: state.value.tasks.some(m => m.name === t.name), scheduled: scheduled.filter(r => r.title === titleOf(t.name) && r.status === 'active') }))
+    const tasks = await Promise.all([...this.service.inventory.tasks.values()].map(async t => {
+      const active = scheduled.filter(r => r.title === titleOf(t.name) && r.status === 'active')
+      const lastRun = (await this.service.store.readBounded<{ at: string }>('tasks', t.name)).at(-1)?.at
+      // Only a task someone enabled can miss a slot; cron schedules are not evaluated.
+      let missed: MissedRun = { missed: false }
+      if (active.length && t.schedule) {
+        try { missed = missedRun(t.schedule, this.service.config.timeZone, lastRun) } catch { missed = { missed: false } }
+      }
+      return { ...t, hosts: this.service.inventory.select(t.targets).map(h => h.name), editable: state.value.tasks.some(m => m.name === t.name), scheduled: active, ...lastRun === undefined ? {} : { lastRun }, ...missed.dueAt === undefined ? {} : { dueAt: missed.dueAt }, missed: missed.missed }
+    }))
     const reference = (ref: string | undefined) => {
       if (!ref) return null
       const local = ref.startsWith('local:') || this.service.config.secrets.provider === 'local'

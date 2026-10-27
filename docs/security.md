@@ -44,7 +44,7 @@
 - `denyPatterns`（默认包括 `rm -rf /`、fork 炸弹、`chmod 777 /`）用 `ctx.tools.guard` 做最终拦截，任何监听器都绕不过。
 - 本地 `bash` 里 `ssh/scp/rsync` 到清单主机会被拒绝（引导改用 `ops_exec`）；本地 `sudo` 需要审批。
 - 认证失败后对该主机暂停登录 15 分钟，避免反复登录被当成暴力破解封 IP；由你执行 `/ops-unblock` 恢复。
-- 模型不能修改清单文件、数据目录和 WispTerm 密码库：DSH 的 `write`/`edit`/`str_replace_editor` 写入这些路径会被拒绝，bash 中非只读的命令只要涉及这些路径也会被拒绝。否则模型可以改清单给自己放开权限。
+- 模型不能读写清单文件、数据目录和 WispTerm 密码库：任何工具的参数只要指向这些路径就会被拒绝（不限于 `protect.fileTools` 列出的写入工具），bash 中只要提及这些路径或 `vault.key` / `vault.json` 的命令也一律拒绝，包括 `cat`、`base64`、`tar` 这类只读命令。原因是 Linux 上密码库密钥是数据目录里的 0600 文件，模型以同一用户身份运行；读取清单和审计请改用 `ops_hosts` 与 `ops_history`。
 - DSH 的 `danger-full-access` 预设审批策略是 `never`，此时所有 ask 都会被拒绝；要在该模式下使用，请在清单里写 `allow` 或用 `/ops-allow`。
 
 ## 独立加密密码库
@@ -52,7 +52,7 @@
 默认 `secrets.provider: local`，内置密码库采用与 WispTerm 相同的设计思路，但文件、密钥和生命周期完全独立：
 
 - `dataDir/vault.json` 保存条目名称、用户名、备注、自动化使用开关及 XChaCha20-Poly1305 加密的密码；每次更新使用随机 24 字节 nonce，并将条目名称作为认证附加数据。
-- macOS 使用独立的 **WispOps Password Store** 钥匙串项，账户按数据目录区分；Windows 使用当前用户 DPAPI 保护 `vault.key`；Linux 等其他系统使用权限为 `0600` 的独立 `vault.key`。Linux 的保护依赖文件权限，能读取密钥和密文的系统账户可解密。
+- macOS 使用独立的 **WispOps Password Store** 钥匙串项，账户按数据目录区分；Windows 使用当前用户 DPAPI 保护 `vault.key`；Linux 等其他系统使用权限为 `0600` 的独立 `vault.key`。Linux 的保护依赖文件权限，能读取密钥和密文的系统账户可解密；因此插件拒绝模型通过任何工具触碰数据目录，见上文。
 - 密码库文件权限为 `0600`，目录为 `0700`；原子替换并检测并发修改。已有加密条目缺失密钥时拒绝生成替代密钥。
 - 密码不回显；只有 SSH / sudo 执行路径解密使用，`agent: false` 的条目不能用于自动化。凭据名称、用户名和备注属于普通元数据，不要在这些字段填写密码。
 - 主机配置可显式引用 `loginSecret: local:条目名` / `sudoSecret: local:条目名`。显式 `local:` 引用也适用于保留旧 `provider: none` 或 `provider: wispterm` 的安装。

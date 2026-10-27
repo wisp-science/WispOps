@@ -40,6 +40,8 @@ export interface PlannedAction {
   readonly sudo: boolean
   /** Sudo pre-authorized by a human-written task definition (still refused by a policy deny). */
   readonly taskSudo?: boolean
+  /** Further commands the action runs verbatim (a task's read-only command list), checked against the deny list too. */
+  readonly extraCommands?: readonly string[]
 }
 
 const READ: RiskAssessment = { level: 'read', elevates: false, reasons: [] }
@@ -74,7 +76,15 @@ export function planAction(tool: string, args: unknown, extraRead: ReadonlySet<s
     case 'ops_task': {
       const task = str(a.name) === undefined ? undefined : inventory?.tasks.get(str(a.name) as string)
       if (task === undefined) return undefined
-      return { selector: task.targets, command: `(task ${task.name}: built-in ${task.playbook} playbook)`, risk: READ, sudo: task.sudo === true, taskSudo: task.sudo === true }
+      const commands = task.commands ?? []
+      return {
+        selector: task.targets,
+        command: `(task ${task.name}: built-in ${task.playbook} playbook${commands.length ? ` + ${commands.length} read-only command(s)` : ''})`,
+        risk: READ,
+        sudo: task.sudo === true,
+        taskSudo: task.sudo === true,
+        ...commands.length ? { extraCommands: commands } : {},
+      }
     }
     default:
       return undefined
@@ -119,7 +129,7 @@ export function gateOpsCall(
     // Selector errors surface from the tool body with the real message; nothing runs.
     return { kind: 'pass' }
   }
-  const commands = tool === 'ops_change' ? changeCommands(validateChange(args)) : [action.command]
+  const commands = tool === 'ops_change' ? changeCommands(validateChange(args)) : [action.command, ...action.extraCommands ?? []]
   const pattern = commands.map(command => deniedByPattern(command, context.denyPatterns)).find(Boolean)
   if (pattern !== undefined) {
     return { kind: 'deny', reason: `Refused by the deployment deny list (${pattern.source}). This command is never run by the agent; a human must do it directly if it is really intended.` }

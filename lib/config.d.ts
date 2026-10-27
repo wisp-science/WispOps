@@ -55,12 +55,23 @@ export interface TaskSchedule {
     /** IANA zone; defaults to the plugin's `timeZone`. */
     timeZone?: string;
 }
+/** Local wall-clock window during which a task's external notifications are not sent. */
+export interface QuietHours {
+    /** `HH:MM`; a window that crosses midnight (22:00 → 07:00) is allowed. */
+    start: string;
+    end: string;
+    /** IANA zone; defaults to the schedule's zone, then the plugin's `timeZone`. */
+    timeZone?: string;
+}
 /** A recurring job for some servers, e.g. a morning report. */
 export interface TaskSpec {
     name: string;
     /** Human-configured channel names; credentials never enter task records. */
     notify?: string[];
     notifyOnlyProblems?: boolean;
+    /** Deliver only when the problem counts differ from the previous run (first run always delivers). */
+    notifyOnChange?: boolean;
+    quietHours?: QuietHours;
     /** Origin template; execution uses the saved copy, never a live template. */
     template?: string;
     description?: string;
@@ -76,6 +87,12 @@ export interface TaskSpec {
     days?: number;
     /** Window for `security`, in hours. */
     hours?: number;
+    /**
+     * Read-only shell commands the task runs on every target after its collector,
+     * so a `custom` task delivers evidence without the model gathering it. Each
+     * command must classify as read-only at load time; anything else is rejected.
+     */
+    commands?: string[];
     /**
      * Run the built-in collector as root. Writing this in the human-managed
      * inventory pre-authorizes sudo for this task's read-only collector, so an
@@ -160,6 +177,12 @@ export interface ProtectSpec {
     /** File-writing tools and the argument holding their path; writes to the inventory file or data directory are refused. */
     fileTools: Record<string, string>;
 }
+export interface RetentionSpec {
+    /** Inspection records kept per host in `dataDir/inspections`; older ones are dropped when a new one is written. */
+    inspectionRecords: number;
+    /** Monthly audit partitions kept, counting the current month; 0 keeps every month. */
+    auditMonths: number;
+}
 export interface Config {
     hosts: HostSpec[];
     groups: Record<string, GroupSpec>;
@@ -174,6 +197,8 @@ export interface Config {
      * inventory and reloaded when it changes. A missing file is an empty inventory.
      */
     inventoryFile?: string;
+    /** OpenSSH client configuration the panel offers to import hosts from. */
+    sshConfigFile: string;
     /** Policy for capabilities no host or group sets. */
     defaultPolicy: Record<Capability, Permission>;
     /** Regular expressions that are refused on every host, regardless of approval or grants. */
@@ -187,6 +212,7 @@ export interface Config {
     grants: GrantsSpec;
     bashGuard: BashGuardSpec;
     thresholds: ThresholdsSpec;
+    retention: RetentionSpec;
     /** Inspection history, disk snapshots, and the audit log. */
     dataDir: string;
 }
@@ -197,6 +223,8 @@ export interface NotificationChannel {
     /** Optional DingTalk/Feishu signing secret, or generic webhook bearer token. */
     secretEnv?: string;
 }
+/** Upper bound on `commands` per task, so one task cannot turn into a fleet-wide batch job. */
+export declare const MAX_TASK_COMMANDS = 20;
 export declare const Task: z<TaskSpec>;
 export declare const Config: z<Config>;
 /** Resolve a config through its schema, filling every default. */

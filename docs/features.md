@@ -11,7 +11,8 @@
 - **近期新增文件分析 `ops_files`**：最近 N 天新增或修改的文件总量、落在哪些目录（与上次扫描对比增长）、属于谁；内置**测序与生信规则库**，能识别原始 FASTQ/BCL/POD5、SAM/BAM/CRAM、VCF/gVCF、修剪后 reads、SRA、Nextflow `work/`、Snakemake `.snakemake`、STAR 临时目录、Cell Ranger 阶段目录、分析对象、日志、缓存，给每类文件标出保留级别（原始数据 / 结果 / 可再生中间文件 / 可压缩转换 / 缓存 / 临时 / 需问责任人）。它还能识别被同目录文件取代的冗余文件：同名 SAM 已有 BAM、`sorted.bam` 已有下游的 `markdup.bam`、BAM 已有 CRAM、`.sra` 已有 FASTQ、未压缩文件已有 `.gz`。根据 `.nextflow.log` 和 `outs/` 判断流程是否已完成；仍被进程打开或位于运行中作业目录的文件一律排除。最后按可回收空间排序，生成带“先做什么检查”的清理计划。
 - **网络攻击排查 `ops_security`**：SSH 暴力破解来源、成功登录（同时标记暴力破解后又登录成功的地址）、连接洪泛与 SYN flood、监听端口、疑似挖矿进程、运行已删除程序或从 `/tmp`、`/dev/shm` 启动的进程、连向常见矿池/C2 端口的外连、多余的 UID 0 账户、近期改动的 authorized_keys/cron/systemd 单元、sshd 弱配置、fail2ban 状态。
 - **能力探测 `ops_hosts probe=true`**：系统、架构、核数、GPU 数、调度器（slurm/pbs/sge/lsf）、权限（root / 免密 sudo / 需密码 sudo / 无）、docker 可用性。
-- **历史 `ops_history`**：按月操作审计、巡检历史；`kind=trends` 输出磁盘和可用内存的文本趋势。
+- **历史 `ops_history`**：按月操作审计、巡检历史；`kind=trends` 输出磁盘和可用内存的文本趋势。审计按 `retention.auditMonths` 保留，巡检历史每台保留 `retention.inspectionRecords` 条。
+- **任务只读命令**：任务和模板可声明 `commands`，由内置采集器在每台关联服务器上执行并随数据交给模型，`custom` 任务不再依赖模型自行采集；命令在保存和加载时按 `ops_exec` 的分类器校验为只读，否则拒绝。
 - **安全变更 `ops_change`**：已有文件、新建文件和目录的强制备份、变更、验证和失败恢复；按组逐台滚动，首台失败即停；备份按天保留，`ops_history kind=changes` 列出。
 - **模板草稿 `ops_template_draft`**：按与你确认的需求提交检查模板草稿，出现在面板任务库的“待审核草稿”中，由你审核保存；不写任务库、不关联服务器、不启用调度、不授予 sudo。
 - **通知、设备同步和更新**：外部 webhook 摘要通知、坚果云 WebDAV 加密快照、中英文面板，以及稳定 Release 检查与可选自动安装，见[操作指南](./operations.md)。
@@ -51,6 +52,7 @@
 
 - 目标主机按 GNU/Linux 处理（使用 `find -printf`、`/proc`、`stat -c`）；BSD/macOS 目标上部分诊断项会缺失；Windows 目标不支持。
 - 超时后本地 ssh 会被结束，但远端命令可能仍在运行，结果里会提示。
-- 汇报保留在 DSH 会话，配置后可外发采集摘要；custom 任务尚需模型继续采集。
+- 汇报保留在 DSH 会话，配置后可外发采集摘要；没有 `commands` 的 custom 任务仍需模型继续采集。
+- 调度依赖 Harness 常驻和已打开的报告会话；错过的时间点不会自动补跑，面板会标出“疑似漏跑”的任务（每日/每周/固定间隔，cron 不判断），可点“运行一次”补跑。
 - 新增文件按修改时间判断，因为 Linux 的 find 通常拿不到文件的创建时间。
-- 后续方向：总览趋势图的阈值标注与分组视图、容器内磁盘归因、更多内置采集器、同步版本合并。
+- 后续方向：总览趋势图的阈值标注与分组视图、容器内磁盘归因、更多内置采集器、同步版本合并、cron 调度的漏跑判断。

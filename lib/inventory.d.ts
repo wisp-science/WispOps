@@ -33,7 +33,7 @@ export declare class Inventory {
     readonly tasks: ReadonlyMap<string, TaskSpec>;
     constructor(hosts: readonly (HostSpec & {
         policyOverride?: PolicySpec;
-    })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks?: readonly TaskSpec[]);
+    })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks?: readonly TaskSpec[], extraRead?: ReadonlySet<string>);
     /**
      * Build from config: imported hosts (e.g. WispTerm profiles) first, then
      * inline entries, then the inventory file. A configured host replaces an

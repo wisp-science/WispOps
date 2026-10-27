@@ -26,6 +26,7 @@ export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }
     void submit({ id: String(f.get('id')), title: String(f.get('title')), description: String(f.get('description')), category: String(f.get('category')),
       parameters: template?.parameters ?? [],
       definition: { playbook, instruction: String(f.get('instruction')),
+        ...(() => { const commands = String(f.get('commands') ?? '').split('\n').map(s => s.trim()).filter(Boolean); return commands.length ? { commands } : {} })(),
         schedule: { daily: String(f.get('time')), timeZone: String(f.get('zone')) },
         ...(['disk', 'new-files'].includes(playbook) ? { paths: String(f.get('paths')).split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
         ...(playbook === 'new-files' ? { days: Number(f.get('days')) } : {}), ...(playbook === 'security' ? { hours: Number(f.get('hours')) } : {}),
@@ -38,6 +39,7 @@ export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }
     <Field title={tr("short.description")}><input name="description" defaultValue={template?.description} maxLength={1000}/></Field>
     <Field title={tr("checks")}><select value={playbook} onChange={e => setPlaybook(e.target.value as typeof playbook)}><option value="inspect">{tr("health.inspection")}</option><option value="disk">{tr("disk.diagnosis")}</option><option value="new-files">{tr("recent.files")}</option><option value="security">{tr("security.triage")}</option><option value="custom">{tr("custom.checks")}</option></select></Field>
     <Field title={tr("inspection.rules")} hint={tr("you.can.copy.a.preset.and")}><textarea name="instruction" required rows={6} maxLength={30000} defaultValue={template?.definition.instruction ?? tr("inspect.server.health.report.abnormal.metrics")}/></Field>
+    <Field title={tr("read.only.commands")} hint={tr("read.only.commands.template.hint")}><textarea name="commands" className="wo-mono" rows={3} defaultValue={template?.definition.commands?.join('\n') ?? ''} placeholder={'systemctl is-active {{service}}\njournalctl -u {{service}} -n 50 --no-pager'} spellCheck={false}/></Field>
     {!!template?.parameters.length && <p className="wo-section-note">{tr("parameters.supplied.when.linking.servers")}{template.parameters.map(p => `${p.label}（{{${p.key}}}）`).join('、')}{tr("keep.the.required.placeholders.when.editing")}</p>}
     {['disk', 'new-files'].includes(playbook) && <Field title={tr("default.scan.paths")} hint={tr("absolute.paths.separated.by.commas.2")}><input name="paths" required defaultValue={template?.definition.paths?.join(', ') ?? (playbook === 'new-files' ? '/var/log' : '/')}/></Field>}
     {playbook === 'new-files' && <Field title={tr("default.look.back.days")}><input name="days" type="number" min={1} required defaultValue={template?.definition.days ?? 1}/></Field>}

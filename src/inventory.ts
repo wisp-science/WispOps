@@ -13,6 +13,7 @@ import { CAPABILITIES, Config } from './config.ts'
 import type { Capability, GroupSpec, HostSpec, Permission, PolicySpec, TaskSpec } from './config.ts'
 import { managedStore } from './managed.ts'
 import type { ManagedState } from './managed.ts'
+import { classifyCommand } from './risk.ts'
 
 /** A host with its effective policy resolved. */
 export interface Host extends HostSpec {
@@ -65,7 +66,7 @@ export class Inventory {
   readonly groups: ReadonlyMap<string, GroupSpec>
   readonly tasks: ReadonlyMap<string, TaskSpec>
 
-  constructor(hosts: readonly (HostSpec & { policyOverride?: PolicySpec })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks: readonly TaskSpec[] = []) {
+  constructor(hosts: readonly (HostSpec & { policyOverride?: PolicySpec })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks: readonly TaskSpec[] = [], extraRead: ReadonlySet<string> = new Set()) {
     const groupMap = new Map(Object.entries(groups))
     const hostMap = new Map<string, Host>()
     for (const spec of hosts) {
@@ -96,17 +97,35 @@ export class Inventory {
     const taskMap = new Map<string, TaskSpec>()
     for (const raw of tasks) {
       // The schema materializes absent optional objects and arrays as {} and []; normalize them away.
-      const { schedule, paths, ...rest } = raw
+      const { schedule, paths, commands, quietHours, ...rest } = raw
       const timed = schedule !== undefined && (schedule.daily !== undefined || schedule.cron !== undefined || schedule.everyMinutes !== undefined)
+      const quiet = quietHours !== undefined && (quietHours.start !== undefined || quietHours.end !== undefined)
       const task: TaskSpec = {
         ...rest,
         ...paths !== undefined && paths.length > 0 ? { paths } : {},
+        ...commands !== undefined && commands.length > 0 ? { commands: commands.map(c => c.trim()) } : {},
         ...timed ? { schedule: { ...schedule, ...schedule.weekdays !== undefined && schedule.weekdays.length === 0 ? { weekdays: undefined } : {} } } : {},
+        ...quiet ? { quietHours: { ...quietHours } } : {},
       }
       if (task.schedule?.weekdays === undefined) delete task.schedule?.weekdays
+      if (task.quietHours?.timeZone === undefined) delete task.quietHours?.timeZone
       if (taskMap.has(task.name)) throw new Error(`duplicate task "${task.name}"`)
       if (task.playbook === 'custom' && (task.instruction === undefined || task.instruction.trim().length === 0)) {
         throw new Error(`task "${task.name}" uses the custom playbook and needs an instruction`)
+      }
+      // Commands run unattended under the task's authorization, so only commands the classifier
+      // proves read-only are accepted; everything else must go through ops_exec and its approval.
+      for (const command of task.commands ?? []) {
+        if (command.length === 0 || /\0/.test(command)) throw new Error(`task "${task.name}" has an empty or invalid command`)
+        const risk = classifyCommand(command, extraRead)
+        if (risk.level !== 'read' || risk.elevates) throw new Error(`task "${task.name}" command is not read-only (${risk.reasons.join('; ') || 'privilege escalation'}): ${command.slice(0, 120)}`)
+      }
+      if (task.quietHours !== undefined) {
+        const { start, end, timeZone } = task.quietHours
+        if (start === undefined || end === undefined || start === end) throw new Error(`task "${task.name}" quietHours need different start and end times`)
+        if (timeZone !== undefined) {
+          try { new Intl.DateTimeFormat('en', { timeZone }) } catch { throw new Error(`task "${task.name}" quietHours time zone "${timeZone}" is invalid`) }
+        }
       }
       if (task.playbook === 'new-files' && (task.paths === undefined || task.paths.length === 0)) {
         throw new Error(`task "${task.name}" uses the new-files playbook and needs paths`)
@@ -149,7 +168,7 @@ export class Inventory {
       const override = Object.hasOwn(state.policies, h.name) && Object.keys(state.policies[h.name]!).length > 0 ? state.policies[h.name] : undefined
       return { ...h, ...binding, ...override === undefined ? {} : { policyOverride: override } }
     })
-    return new Inventory(hosts, groups, config.defaultPolicy, [...tasks, ...state.tasks])
+    return new Inventory(hosts, groups, config.defaultPolicy, [...tasks, ...state.tasks], new Set(config.extraReadPrograms))
   }
 
   /**

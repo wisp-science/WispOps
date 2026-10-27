@@ -38,6 +38,8 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
   const selected = fixedHost ? [fixedHost] : selectedHosts
   const [notify, setNotify] = useState(task?.notify ?? [])
   const [notifyOnlyProblems, setNotifyOnlyProblems] = useState(task?.notifyOnlyProblems ?? true)
+  const [notifyOnChange, setNotifyOnChange] = useState(task?.notifyOnChange ?? false)
+  const [quiet, setQuiet] = useState({ enabled: !!task?.quietHours, start: task?.quietHours?.start ?? '22:00', end: task?.quietHours?.end ?? '08:00' })
   const notificationChannels = data.notificationChannels ?? []
   const notificationsId = useId()
   const [playbook, setPlaybook] = useState(defaults?.playbook ?? 'inspect')
@@ -48,6 +50,7 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
     paths: defaults?.paths?.join(', ') ?? (defaults?.playbook === 'new-files' ? '/var/log' : '/'), lookbackDays: defaults?.days ?? 1, hours: defaults?.hours ?? 24,
     time: defaults?.schedule?.daily ?? '08:30', interval: defaults?.schedule?.everyMinutes ?? 60,
     cron: defaults?.schedule?.cron ?? '0 8 * * *', zone: defaults?.schedule?.timeZone ?? data.timeZone, sudo: task?.sudo ?? false,
+    commands: task?.commands?.join('\n') ?? '',
   })
   const [refreshProbe, setRefreshProbe] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -90,9 +93,13 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
     e.preventDefault()
     if (disabled) return
     const schedule = frequency === 'manual' ? undefined : { timeZone: fields.zone, ...(frequency === 'interval' ? { everyMinutes: fields.interval } : frequency === 'cron' ? { cron: fields.cron } : { daily: fields.time, ...(frequency === 'weekly' ? { weekdays: days } : {}) }) }
+    const commands = fields.commands.split('\n').map(s => s.trim()).filter(Boolean)
     void submit({
       name: fields.name, description: fields.description, targets: selected.join(','), playbook, instruction: fields.instruction, ...(schedule ? { schedule } : {}), sudo: fields.sudo,
-      notify, notifyOnlyProblems,
+      // A template's commands are copied by the server from the template itself.
+      ...(!template && commands.length ? { commands } : {}),
+      notify, notifyOnlyProblems, notifyOnChange,
+      ...(notify.length && quiet.enabled ? { quietHours: { start: quiet.start, end: quiet.end, timeZone: fields.zone } } : {}),
       ...(['disk', 'new-files'].includes(playbook) ? { paths: fields.paths.split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
       ...(playbook === 'new-files' ? { days: fields.lookbackDays } : {}), ...(playbook === 'security' ? { hours: fields.hours } : {}),
       ...(task?.template ? { template: task.template } : {}),
@@ -119,6 +126,7 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
         <Field title={tr("display.title")}><input value={fields.description} onChange={e => set('description', e.target.value)} placeholder={tr("daily.inspection.of.the.hong.kong")}/></Field>
       </div>
       <Field title={template ? tr("additional.requirements.optional") : tr("report.requirements")} hint={tr("add.metrics.to.focus.on.and")}><textarea value={fields.instruction} onChange={e => set('instruction', e.target.value)} required={!template && playbook === 'custom'} rows={draft ? 8 : 3} placeholder={template ? tr("for.example.describe.only.abnormal.findings") : tr("use.generate.inspection.rules.above.to")}/></Field>
+      {template ? !!template.definition.commands?.length && <details className="wo-template-preview"><summary>{tr("commands.count", { p0: template.definition.commands.length })}</summary><pre className="wo-command-list">{template.definition.commands.join('\n')}</pre></details> : <Field title={tr("read.only.commands")} hint={tr("read.only.commands.hint")}><textarea className="wo-mono" value={fields.commands} onChange={e => set('commands', e.target.value)} rows={3} placeholder={'systemctl is-active nginx\ndf -h /data'} spellCheck={false}/></Field>}
       {['disk', 'new-files'].includes(playbook) && <Field title={tr("scan.paths")} hint={tr("absolute.paths.separated.by.commas")}><input value={fields.paths} onChange={e => set('paths', e.target.value)} required/></Field>}
       {playbook === 'new-files' && <Field title={tr("look.back.days")}><input type="number" min="1" value={fields.lookbackDays} onChange={e => set('lookbackDays', Number(e.target.value))} required/></Field>}
       {playbook === 'security' && <Field title={tr("look.back.hours")}><input type="number" min="1" value={fields.hours} onChange={e => set('hours', Number(e.target.value))} required/></Field>}
@@ -135,6 +143,9 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
           {notificationChannels.length ? <>
             <div className="wo-task-channels" role="group" aria-labelledby={notificationsId}>{notificationChannels.map(name => <label className={`wo-task-channel${notify.includes(name) ? ' is-selected' : ''}`} key={name}><input type="checkbox" checked={notify.includes(name)} onChange={e => setNotify(e.target.checked ? [...notify, name] : notify.filter(n => n !== name))}/><span>{name}</span></label>)}</div>
             <TaskToggle title={tr("task.notifications.only.problems")} hint={tr("notify.only.on.warnings.failures.or")} checked={notifyOnlyProblems} disabled={!notificationChannels.some(name => notify.includes(name))} onChange={setNotifyOnlyProblems}/>
+            <TaskToggle title={tr("task.notify.on.change")} hint={tr("task.notify.on.change.hint")} checked={notifyOnChange} disabled={!notificationChannels.some(name => notify.includes(name))} onChange={setNotifyOnChange}/>
+            <TaskToggle title={tr("quiet.hours")} hint={tr("quiet.hours.hint")} checked={quiet.enabled} disabled={!notificationChannels.some(name => notify.includes(name))} onChange={enabled => setQuiet({ ...quiet, enabled })}/>
+            {quiet.enabled && notify.length > 0 && <div className="wo-quiet-hours"><span>{tr("quiet.hours.start")}</span><input type="time" aria-label={tr("quiet.hours.start")} value={quiet.start} onChange={e => setQuiet({ ...quiet, start: e.target.value })} required/><span>{tr("quiet.hours.end")}</span><input type="time" aria-label={tr("quiet.hours.end")} value={quiet.end} onChange={e => setQuiet({ ...quiet, end: e.target.value })} required/></div>}
           </> : <p className="wo-task-notifications-empty">{tr("add.notification.channels.in.the.plugin")}</p>}
         </section>
       </div>

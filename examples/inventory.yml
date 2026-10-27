@@ -68,7 +68,13 @@ tasks:
     targets: server-a
     playbook: custom
     instruction: 观察 MCP 服务的调度情况（任务排队、失败、超时、资源占用），每天早上给我汇报
+    # Read-only commands run by the built-in collector on every target; a non-read command fails the load.
+    commands:
+      - systemctl is-active mcp-scheduler
+      - journalctl -u mcp-scheduler -p warning --since -24h --no-pager | tail -n 50
     schedule: { daily: "08:30", timeZone: Asia/Shanghai }
+    notifyOnChange: true                       # deliver only when the problem counts change
+    quietHours: { start: "22:00", end: "08:00" } # no external delivery in this local window
 
   - name: b-new-files
     targets: server-b

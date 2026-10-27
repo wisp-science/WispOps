@@ -5,7 +5,7 @@ import { Task } from './config.ts'
 import type { Config } from './config.ts'
 import { Inventory } from './inventory.ts'
 import { LocalState } from './local-state.ts'
-import { renderTemplate } from './task-template-content.ts'
+import { renderTemplate, renderTemplateCommands } from './task-template-content.ts'
 import type { TaskTemplate, TemplateParameter } from './task-template-content.ts'
 
 const parameter = (key: string, label: string, hint: string, required = true, defaultValue?: string): TemplateParameter => ({ key, label, hint, required, ...(defaultValue === undefined ? {} : { defaultValue }) })
@@ -37,8 +37,9 @@ export function validateTemplate(value: unknown): TaskTemplate {
   if (!raw.title.trim() || !raw.category.trim()) throw new Error('请填写模板标题和分类。')
   if (!raw.definition || 'targets' in raw.definition || 'sudo' in raw.definition) throw new Error('模板不保存服务器关联或 sudo 授权。')
   const parsed = Task({ ...raw.definition, name: 'template-validation', targets: 'template-validation' })
-  // Reuse the same collector, schedule and path checks as concrete tasks.
-  new Inventory([{ name: 'template-validation' }], {}, { change: 'ask', sudo: 'ask', destructive: 'ask' }, [parsed])
+  const { commands: rawCommands, ...withoutCommands } = parsed
+  // Reuse the same collector, schedule and path checks as concrete tasks; commands are checked below in rendered form.
+  new Inventory([{ name: 'template-validation' }], {}, { change: 'ask', sudo: 'ask', destructive: 'ask' }, [withoutCommands])
   if (parsed.schedule?.timeZone) {
     try { new Intl.DateTimeFormat('en', { timeZone: parsed.schedule.timeZone }) } catch { throw new Error('模板时区无效。') }
   }
@@ -50,9 +51,14 @@ export function validateTemplate(value: unknown): TaskTemplate {
     seen.add(p.key)
     return { key: p.key, label: p.label, hint: p.hint, required: p.required, ...(p.defaultValue === undefined ? {} : { defaultValue: p.defaultValue }) }
   })
-  const { name: _name, targets: _targets, sudo: _sudo, template: _template, ...definition } = parsed
-  const template: TaskTemplate = { id: raw.id, title: raw.title.trim(), description: raw.description, category: raw.category.trim(), definition: { ...definition, instruction: parsed.instruction }, parameters }
+  const { name: _name, targets: _targets, sudo: _sudo, template: _template, quietHours: _quiet, ...definition } = withoutCommands
+  const commands = (rawCommands ?? []).map(c => c.trim())
+  if (commands.some(c => c.length === 0)) throw new Error('只读命令不能为空行。')
+  const template: TaskTemplate = { id: raw.id, title: raw.title.trim(), description: raw.description, category: raw.category.trim(), definition: { ...definition, instruction: parsed.instruction, ...commands.length > 0 ? { commands } : {} }, parameters }
   renderTemplate(template, {}, false)
+  // A `{{key}}` placeholder is one quoted word once servers are linked, so classify the rendered form the way a saved task is classified.
+  const rendered = renderTemplateCommands(template, {}, false)
+  if (rendered.length > 0) new Inventory([{ name: 'template-validation' }], {}, { change: 'ask', sudo: 'ask', destructive: 'ask' }, [{ ...withoutCommands, commands: rendered }])
   return template
 }
 

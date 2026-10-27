@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto'
-import type { Config, NotificationChannel, TaskSpec } from './config.ts'
+import type { Config, NotificationChannel, QuietHours, TaskSpec } from './config.ts'
 import type { TaskRunRecord } from './tasks.ts'
 
 export interface Delivery { channel: string; status: 'sent' | 'failed' | 'skipped'; detail?: string }
@@ -65,11 +65,47 @@ async function responseJson(response: Response): Promise<Record<string, unknown>
   } finally { await reader.cancel().catch(() => {}) }
 }
 
+/** Count keys that make a run a problem worth a notification. */
+export const PROBLEM_KEYS = ['warn', 'crit', 'unreachable', 'incomplete', 'commandFailed'] as const
+
+/** The problem counts of a run, in a fixed order, so two runs compare as strings. */
+export function problemSignature(counts: Record<string, number>): string {
+  return PROBLEM_KEYS.map(key => `${key}=${counts[key] ?? 0}`).join(' ')
+}
+
+/** Wall-clock `HH:MM` of an instant in a zone; falls back to UTC for an unknown zone. */
+export function localClock(ms: number, timeZone: string): string {
+  const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
+  let text: string
+  try { text = new Intl.DateTimeFormat('en-GB', { ...options, timeZone }).format(new Date(ms)) } catch { text = new Intl.DateTimeFormat('en-GB', { ...options, timeZone: 'UTC' }).format(new Date(ms)) }
+  return text.replace(/^24/, '00')
+}
+
+/** Whether `ms` falls inside the task's quiet window; a window that ends before it starts crosses midnight. */
+export function inQuietHours(quiet: QuietHours | undefined, ms: number, fallbackZone: string): boolean {
+  if (quiet === undefined || quiet.start === quiet.end) return false
+  const now = localClock(ms, quiet.timeZone ?? fallbackZone)
+  return quiet.start < quiet.end ? now >= quiet.start && now < quiet.end : now >= quiet.start || now < quiet.end
+}
+
+export interface NotifyContext {
+  /** The previous run, for `notifyOnChange`. */
+  previous?: TaskRunRecord
+  /** Instant used for quiet hours; defaults to the record's time. */
+  now?: number
+  /** Zone for quiet hours without their own; defaults to UTC. */
+  timeZone?: string
+}
+
 /** Opt-in delivery after durable task recording. Failures never discard the inspection. */
-export async function notifyTask(config: Pick<Config, 'notifications'>, task: TaskSpec, record: TaskRunRecord, signal?: AbortSignal, send: typeof fetch = fetch): Promise<Delivery[]> {
-  const problem = ['warn', 'crit', 'unreachable', 'incomplete'].some(key => (record.counts[key] ?? 0) > 0)
+export async function notifyTask(config: Pick<Config, 'notifications'>, task: TaskSpec, record: TaskRunRecord, signal?: AbortSignal, send: typeof fetch = fetch, context: NotifyContext = {}): Promise<Delivery[]> {
+  const problem = PROBLEM_KEYS.some(key => (record.counts[key] ?? 0) > 0)
+  const unchanged = context.previous !== undefined && problemSignature(context.previous.counts) === problemSignature(record.counts)
+  const quiet = inQuietHours(task.quietHours, context.now ?? (Number.isFinite(Date.parse(record.at)) ? Date.parse(record.at) : Date.now()), context.timeZone ?? 'UTC')
   return Promise.all([...new Set(task.notify ?? [])].map(async channelName => {
-    if (task.notifyOnlyProblems && !problem) return { channel: channelName, status: 'skipped' as const }
+    if (task.notifyOnlyProblems && !problem) return { channel: channelName, status: 'skipped' as const, detail: 'no problems' }
+    if (task.notifyOnChange && unchanged) return { channel: channelName, status: 'skipped' as const, detail: 'unchanged since the previous run' }
+    if (quiet) return { channel: channelName, status: 'skipped' as const, detail: `quiet hours ${task.quietHours!.start}–${task.quietHours!.end}` }
     const channel = config.notifications[channelName]
     if (!channel) return { channel: channelName, status: 'failed' as const, detail: 'unknown channel' }
     try {

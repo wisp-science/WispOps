@@ -33,6 +33,8 @@ export interface PlannedAction {
     readonly sudo: boolean;
     /** Sudo pre-authorized by a human-written task definition (still refused by a policy deny). */
     readonly taskSudo?: boolean;
+    /** Further commands the action runs verbatim (a task's read-only command list), checked against the deny list too. */
+    readonly extraCommands?: readonly string[];
 }
 /** Interpret one of this plugin's tool calls; undefined for tools that touch no host. */
 export declare function planAction(tool: string, args: unknown, extraRead: ReadonlySet<string>, inventory?: Inventory): PlannedAction | undefined;

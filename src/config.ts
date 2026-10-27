@@ -67,12 +67,24 @@ export interface TaskSchedule {
   timeZone?: string
 }
 
+/** Local wall-clock window during which a task's external notifications are not sent. */
+export interface QuietHours {
+  /** `HH:MM`; a window that crosses midnight (22:00 → 07:00) is allowed. */
+  start: string
+  end: string
+  /** IANA zone; defaults to the schedule's zone, then the plugin's `timeZone`. */
+  timeZone?: string
+}
+
 /** A recurring job for some servers, e.g. a morning report. */
 export interface TaskSpec {
   name: string
   /** Human-configured channel names; credentials never enter task records. */
   notify?: string[]
   notifyOnlyProblems?: boolean
+  /** Deliver only when the problem counts differ from the previous run (first run always delivers). */
+  notifyOnChange?: boolean
+  quietHours?: QuietHours
   /** Origin template; execution uses the saved copy, never a live template. */
   template?: string
   description?: string
@@ -88,6 +100,12 @@ export interface TaskSpec {
   days?: number
   /** Window for `security`, in hours. */
   hours?: number
+  /**
+   * Read-only shell commands the task runs on every target after its collector,
+   * so a `custom` task delivers evidence without the model gathering it. Each
+   * command must classify as read-only at load time; anything else is rejected.
+   */
+  commands?: string[]
   /**
    * Run the built-in collector as root. Writing this in the human-managed
    * inventory pre-authorizes sudo for this task's read-only collector, so an
@@ -182,6 +200,13 @@ export interface ProtectSpec {
   fileTools: Record<string, string>
 }
 
+export interface RetentionSpec {
+  /** Inspection records kept per host in `dataDir/inspections`; older ones are dropped when a new one is written. */
+  inspectionRecords: number
+  /** Monthly audit partitions kept, counting the current month; 0 keeps every month. */
+  auditMonths: number
+}
+
 export interface Config {
   hosts: HostSpec[]
   groups: Record<string, GroupSpec>
@@ -196,6 +221,8 @@ export interface Config {
    * inventory and reloaded when it changes. A missing file is an empty inventory.
    */
   inventoryFile?: string
+  /** OpenSSH client configuration the panel offers to import hosts from. */
+  sshConfigFile: string
   /** Policy for capabilities no host or group sets. */
   defaultPolicy: Record<Capability, Permission>
   /** Regular expressions that are refused on every host, regardless of approval or grants. */
@@ -209,6 +236,7 @@ export interface Config {
   grants: GrantsSpec
   bashGuard: BashGuardSpec
   thresholds: ThresholdsSpec
+  retention: RetentionSpec
   /** Inspection history, disk snapshots, and the audit log. */
   dataDir: string
 }
@@ -261,18 +289,27 @@ const host: z<HostSpec> = z.object({
 })
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+/** Upper bound on `commands` per task, so one task cannot turn into a fleet-wide batch job. */
+export const MAX_TASK_COMMANDS = 20
 
 export const Task: z<TaskSpec> = z.object({
   name: z.string().pattern(NAME).required(),
   notify: z.array(z.string().pattern(NAME)),
   notifyOnlyProblems: z.boolean(),
+  notifyOnChange: z.boolean(),
+  quietHours: z.object({
+    start: z.string().pattern(HHMM),
+    end: z.string().pattern(HHMM),
+    timeZone: z.string(),
+  }),
   template: z.string().pattern(NAME),
   description: z.string(),
   targets: z.string().required(),
   playbook: z.union(['inspect', 'disk', 'new-files', 'security', 'custom'] as const).required(),
   instruction: z.string(),
   schedule: z.object({
-    daily: z.string().pattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+    daily: z.string().pattern(HHMM),
     weekdays: z.array(z.natural().min(1).max(7)),
     cron: z.string().pattern(/^\S+(?:\s+\S+){4}$/),
     everyMinutes: z.natural().min(1),
@@ -281,6 +318,7 @@ export const Task: z<TaskSpec> = z.object({
   paths: z.array(z.string().pattern(/^\//)),
   days: z.natural().min(1),
   hours: z.natural().min(1),
+  commands: z.array(z.string().max(2000)).max(MAX_TASK_COMMANDS),
   sudo: z.boolean(),
 })
 
@@ -303,6 +341,7 @@ export const Config: z<Config> = z.object({
     fileTools: z.dict(z.string()).default({ write: 'file_path', edit: 'file_path', str_replace_editor: 'path' }),
   }).default({ fileTools: { write: 'file_path', edit: 'file_path', str_replace_editor: 'path' } }),
   inventoryFile: z.string().default('~/.dsh-wisp-ops/inventory.yml'),
+  sshConfigFile: z.string().default('~/.ssh/config'),
   defaultPolicy: z.object({
     change: permission.default('ask'),
     sudo: permission.default('ask'),
@@ -364,6 +403,10 @@ export const Config: z<Config> = z.object({
     zombieWarn: z.natural().default(10),
     diskGrowthWarnPts: z.number().default(5),
   }).default(defaultThresholds()),
+  retention: z.object({
+    inspectionRecords: z.natural().min(10).default(1000),
+    auditMonths: z.natural().default(12),
+  }).default({ inspectionRecords: 1000, auditMonths: 12 }),
   dataDir: z.string().default(join(homedir(), '.dsh-wisp-ops')),
 })
 

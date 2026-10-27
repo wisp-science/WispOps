@@ -42,8 +42,12 @@ export declare class OpsManager {
     private pending;
     private readonly sync;
     constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined);
-    /** Serialize writes spanning credentials, bindings, and scheduler membership. */
+    /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups bypass the queue. */
     dispatch(value: unknown): Promise<unknown>;
+    /** Owner-initiated capability probe of a few servers, read-only and without sudo; results join the saved probes. */
+    private probeHosts;
+    /** The audit log the model sees through ops_history, for the panel: bounded rows, newest last, no secrets. */
+    private auditLog;
     private scheduleRecords;
     private update;
     private handle;

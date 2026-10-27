@@ -1,4 +1,4 @@
-import type { Config, NotificationChannel, TaskSpec } from './config.ts';
+import type { Config, NotificationChannel, QuietHours, TaskSpec } from './config.ts';
 import type { TaskRunRecord } from './tasks.ts';
 export interface Delivery {
     channel: string;
@@ -12,5 +12,21 @@ export declare function webhookRequest(channel: NotificationChannel, markdown: s
     body: object;
     headers: Record<string, string>;
 };
+/** Count keys that make a run a problem worth a notification. */
+export declare const PROBLEM_KEYS: readonly ["warn", "crit", "unreachable", "incomplete", "commandFailed"];
+/** The problem counts of a run, in a fixed order, so two runs compare as strings. */
+export declare function problemSignature(counts: Record<string, number>): string;
+/** Wall-clock `HH:MM` of an instant in a zone; falls back to UTC for an unknown zone. */
+export declare function localClock(ms: number, timeZone: string): string;
+/** Whether `ms` falls inside the task's quiet window; a window that ends before it starts crosses midnight. */
+export declare function inQuietHours(quiet: QuietHours | undefined, ms: number, fallbackZone: string): boolean;
+export interface NotifyContext {
+    /** The previous run, for `notifyOnChange`. */
+    previous?: TaskRunRecord;
+    /** Instant used for quiet hours; defaults to the record's time. */
+    now?: number;
+    /** Zone for quiet hours without their own; defaults to UTC. */
+    timeZone?: string;
+}
 /** Opt-in delivery after durable task recording. Failures never discard the inspection. */
-export declare function notifyTask(config: Pick<Config, 'notifications'>, task: TaskSpec, record: TaskRunRecord, signal?: AbortSignal, send?: typeof fetch): Promise<Delivery[]>;
+export declare function notifyTask(config: Pick<Config, 'notifications'>, task: TaskSpec, record: TaskRunRecord, signal?: AbortSignal, send?: typeof fetch, context?: NotifyContext): Promise<Delivery[]>;

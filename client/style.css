@@ -309,3 +309,16 @@
 .wo-task-submit>button{flex-shrink:0;min-height:38px}
 @media(max-width:480px){.wo-task-option{gap:14px;padding:14px}.wo-task-notifications{padding:14px}.wo-task-submit{flex-direction:column;align-items:stretch;gap:14px}.wo-task-submit>button{width:100%}}
 @media(prefers-reduced-motion:reduce){.wo-dialog input.wo-task-switch,.wo-task-switch::after{transition:none}}
+
+/* Audit log, ssh_config import, task run status and notification windows. */
+.wo-toolbar-actions{display:flex;gap:8px;align-items:center}
+.wo-audit{min-width:0}.wo-audit-controls{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:14px 0;font-size:12px}.wo-audit-controls label{display:flex;align-items:center;gap:8px;color:var(--wo-muted)}.wo-audit-controls select{padding:6px 9px;font-size:12px;color:var(--wo-text)}
+.wo-audit-scroll{overflow-x:auto;border:1px solid var(--wo-line);border-radius:9px}.wo-audit-table{width:100%;border-collapse:collapse;font-size:12px}.wo-audit-table th,.wo-audit-table td{padding:8px 10px;border-bottom:1px solid var(--wo-line);text-align:left;vertical-align:top;white-space:nowrap}.wo-audit-table th{font-weight:600;font-size:11px;color:var(--wo-muted);background:var(--wo-panel)}.wo-audit-table tbody tr:last-child td{border-bottom:0}.wo-audit-table td.wo-audit-command{white-space:pre-wrap;overflow-wrap:anywhere;min-width:220px;max-width:560px;font-size:11px}.wo-audit-table td small{display:block;font-size:10px}.wo-audit-table .wo-text-button{padding:0;font-size:12px}
+.wo-audit-status.ok{color:#3b8460}.wo-audit-status.bad{color:#9c582f}
+.wo-task-run{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:11px;color:var(--wo-muted)}.wo-task-run.is-missed{background:#fff3dc;color:#7a5a24;border-radius:7px;padding:8px 10px}.wo-task-run.is-missed small{color:inherit}
+.wo-import-list{border:1px solid var(--wo-line);border-radius:7px;max-height:320px;overflow:auto;margin:0 0 4px}.wo-import-list label{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-bottom:1px solid var(--wo-line);font-size:12px;cursor:pointer}.wo-import-list label:last-child{border-bottom:0}.wo-import-list label.is-existing{opacity:.55;cursor:default}.wo-import-list label>span{min-width:0;flex:1}.wo-import-list label .wo-block{margin-top:2px;font-size:11px;color:var(--wo-muted);overflow-wrap:anywhere}.wo-import-list input{margin-top:3px;accent-color:var(--wo-accent)}
+.wo-quiet-hours{display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;font-size:12px;margin:4px 0 8px}
+.wo-command-list{margin:8px 0 0;padding:10px 12px;background:var(--wo-panel);border-radius:7px;font:11px/1.6 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.wo-dialog textarea.wo-mono{font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px}
+@media(prefers-color-scheme:dark){.wo-task-run.is-missed{background:#443728;color:#dbb980}.wo-audit-status.ok{color:#8bc9a8}.wo-audit-status.bad{color:#e0a27a}}
+@container(max-width:650px){.wo-toolbar{grid-template-columns:1fr}.wo-toolbar-actions{justify-content:flex-end;flex-wrap:wrap}.wo-quiet-hours{grid-template-columns:auto minmax(0,1fr)}}

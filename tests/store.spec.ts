@@ -1,8 +1,8 @@
-import { mkdtemp, writeFile, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { OpsStore, reverseJsonLines } from '../src/store.ts'
+import { OpsStore, auditCutoffMonth, reverseJsonLines } from '../src/store.ts'
 import type { AuditEntry } from '../src/store.ts'
 import { renderTrends } from '../src/trends.ts'
 let dir: string
@@ -32,4 +32,25 @@ it('renders chronological disk and memory trends without treating failures as ze
   const rows = [{ at: 'a', status: 'ok' as const, diskPct: { '/': 50 }, memAvailPct: 30, findings: [] }, { at: 'b', status: 'failed' as const, diskPct: {}, findings: [] }, { at: 'c', status: 'ok' as const, diskPct: { '/': 75 }, memAvailPct: 10, findings: [] }]
   expect(renderTrends(rows).join('\n')).toContain('+25.0 percentage points')
   expect(renderTrends(rows).join('\n')).toContain('-20.0 percentage points')
+})
+it('keeps only the newest inspection records per host and prunes audit months past retention', async () => {
+  const store = new OpsStore(dir, { inspectionRecords: 10, auditMonths: 3 })
+  for (let i = 0; i < 25; i++) await store.appendHistory('a', { at: `2026-10-${String(i + 1).padStart(2, '0')}T00:00:00Z`, status: 'ok', diskPct: { '/': i }, findings: [] })
+  const kept = await store.readHistory('a', 100)
+  expect(kept).toHaveLength(10)
+  expect(kept[0]?.diskPct['/']).toBe(15)
+  expect(kept.at(-1)?.diskPct['/']).toBe(24)
+  expect((await readdir(join(dir, 'inspections'))).filter(n => n.endsWith('.tmp'))).toEqual([])
+  await mkdir(join(dir, 'audit'), { recursive: true })
+  for (const month of ['2026-02', '2026-07', '2026-08']) await writeFile(join(dir, 'audit', `${month}.jsonl`), JSON.stringify(row(`${month}-15T00:00:00Z`)) + '\n')
+  await store.audit(row('2026-10-01T00:00:00Z'))
+  expect((await readdir(join(dir, 'audit'))).sort()).toEqual(['2026-08.jsonl', '2026-10.jsonl'])
+  expect(auditCutoffMonth(3, new Date('2026-10-15T00:00:00Z'))).toBe('2026-08')
+  expect(auditCutoffMonth(12, new Date('2026-01-15T00:00:00Z'))).toBe('2025-02')
+  // Legacy single-file history and a zero retention are left alone.
+  const forever = new OpsStore(dir, { inspectionRecords: 10, auditMonths: 0 })
+  await writeFile(join(dir, 'audit', '2020-01.jsonl'), JSON.stringify(row('2020-01-15T00:00:00Z')) + '\n')
+  await forever.audit(row('2026-10-02T00:00:00Z'))
+  expect(await forever.pruneAudit()).toEqual([])
+  expect((await readdir(join(dir, 'audit'))).sort()).toEqual(['2020-01.jsonl', '2026-08.jsonl', '2026-10.jsonl'])
 })

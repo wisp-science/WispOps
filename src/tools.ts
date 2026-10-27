@@ -20,7 +20,7 @@ import { changeScript, describeChange, MAX_PATHS_PER_KIND, parseChangeOutput, va
 import type { ChangeOutcome } from './change.ts'
 import type { RunResult } from './ssh.ts'
 import { renderTrends } from './trends.ts'
-import { PLAYBOOKS } from './config.ts'
+import { MAX_TASK_COMMANDS, PLAYBOOKS } from './config.ts'
 import { addTemplateDraft, builtinTemplates, templateStore } from './task-library.ts'
 
 /** Vouchers issued by the gate, keyed by execution token and consumed once. */
@@ -368,7 +368,7 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
         const tasks = [...service.inventory.tasks.values()]
         const text = tasks.length === 0
           ? 'No tasks are defined. The user adds them under `tasks:` in the inventory file.'
-          : tasks.map(t => `- ${t.name}: ${t.playbook} on ${t.targets}, ${describeSchedule(t, service.config)}${t.sudo === true ? ', sudo' : ''}${t.description === undefined ? '' : ` — ${t.description}`}`).join('\n')
+          : tasks.map(t => `- ${t.name}: ${t.playbook} on ${t.targets}, ${describeSchedule(t, service.config)}${t.sudo === true ? ', sudo' : ''}${t.commands?.length ? `, ${t.commands.length} read-only command(s)` : ''}${t.description === undefined ? '' : ` — ${t.description}`}`).join('\n')
         return json({ text, tasks })
       }
       const task = service.inventory.tasks.get(args.name)
@@ -394,8 +394,9 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
       title: { type: 'string', required: true },
       category: { type: 'string', required: true, description: 'For example 基础运维, 安全, 应用服务, 数据管理, 计算集群.' },
       description: { type: 'string', required: true, description: 'One line for the template card.' },
-      playbook: { type: 'string', enum: [...PLAYBOOKS], required: true, description: 'inspect = health data; disk = disk diagnosis (paths); new-files = recent files (paths, days); security = security triage (hours); custom = checks the instruction drives through read-only ops_exec.' },
+      playbook: { type: 'string', enum: [...PLAYBOOKS], required: true, description: 'inspect = health data; disk = disk diagnosis (paths); new-files = recent files (paths, days); security = security triage (hours); custom = checks driven by commands (preferred) or by the instruction through read-only ops_exec.' },
       instruction: { type: 'string', required: true },
+      commands: { type: 'array', items: { type: 'string' }, description: `Up to ${MAX_TASK_COMMANDS} read-only POSIX shell commands the task runs on every linked server before the report is written (e.g. "systemctl is-active {{service}}"); {{key}} placeholders are inserted as one quoted word. Each command must be classifiable as read-only (no writes, deletes, service changes or sudo), or the draft is rejected.` },
       paths: { type: 'array', items: { type: 'string' }, description: 'Absolute default paths; required for disk and new-files.' },
       days: { type: 'integer', description: 'new-files look-back days.' },
       hours: { type: 'integer', description: 'security look-back hours.' },
@@ -420,6 +421,7 @@ export function registerTools(ctx: Context, service: OpsService, vouchers: Vouch
         definition: {
           playbook: args.playbook, instruction: args.instruction, schedule: { daily: args.daily ?? '08:30', timeZone: args.timeZone ?? config.timeZone },
           ...args.paths === undefined ? {} : { paths: args.paths }, ...args.days === undefined ? {} : { days: args.days }, ...args.hours === undefined ? {} : { hours: args.hours },
+          ...args.commands === undefined ? {} : { commands: args.commands },
         },
       })
       return json({ text: `Draft "${draft.template.title}" (${draft.template.id}) is waiting for review. Nothing was added to the task library: ask the user to open WispOps → Task library → Drafts to review, check it and save it.`, draft })
