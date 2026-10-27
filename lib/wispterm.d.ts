@@ -18,7 +18,7 @@
  */
 import type { HostSpec } from './config.ts';
 import type { Host } from './inventory.ts';
-import type { SecretProvider } from './secrets.ts';
+import type { SecretProvider, SudoCredential } from './secrets.ts';
 export declare const KEYCHAIN_SERVICE = "WispTerm Password Store";
 export declare const KEYCHAIN_ACCOUNT = "vault-key";
 /** WispTerm's config directory for this platform. */
@@ -50,6 +50,7 @@ export declare class WispTermSecrets implements SecretProvider {
     private key;
     constructor(dir: string, readKey?: (dir: string) => Promise<Uint8Array>);
     sudoPassword(host: Host): Promise<string | undefined>;
+    sudoCredential(host: Host): Promise<SudoCredential | undefined>;
     loginPassword(host: Host): Promise<string | undefined>;
     private open;
     dispose(): void;

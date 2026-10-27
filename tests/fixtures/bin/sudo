@@ -16,10 +16,14 @@ done
 if [ "$mode" = validate ]; then
   if [ -n "$FAKE_SUDO_NOPASSWD" ]; then exit 0; fi
   IFS= read -r pw
-  if [ "$pw" = "$FAKE_SUDO_PASSWORD" ]; then : > "$FAKE_SUDO_STATE"; exit 0; fi
+  if [ "$pw" = "$FAKE_SUDO_PASSWORD" ]; then printf '%s\n' "$PPID" > "$FAKE_SUDO_STATE"; exit 0; fi
   exit 1
 fi
 if [ -n "$FAKE_SUDO_NOPASSWD" ] || [ -f "$FAKE_SUDO_STATE" ]; then
+  if [ -z "$FAKE_SUDO_NOPASSWD" ] && [ "$FAKE_SUDO_BIND_PARENT" = 1 ] && [ "$(cat "$FAKE_SUDO_STATE")" != "$PPID" ]; then
+    echo "sudo: a password is required" >&2
+    exit 1
+  fi
   FAKE_ROOT=1 exec "$@"
 fi
 echo "sudo: a password is required" >&2

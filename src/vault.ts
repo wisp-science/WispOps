@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { xchacha20poly1305 } from '@noble/ciphers/chacha'
 import { LocalState } from './local-state.ts'
 import type { Host } from './inventory.ts'
-import type { SecretProvider } from './secrets.ts'
+import type { SecretProvider, SudoCredential } from './secrets.ts'
 
 export interface Credential { name: string; username: string; note: string; agent: boolean }
 interface SealedCredential extends Credential { secret: string }
@@ -129,7 +129,7 @@ export class LocalVault implements SecretProvider {
       } finally { key.fill(0) }
     }, participate)
   }
-  async password(reference: string | undefined): Promise<string | undefined> {
+  private async credential(reference: string | undefined): Promise<SudoCredential | undefined> {
     if (!reference) return undefined
     const name = reference.replace(/^local:/, '')
     const entry = (await this.state.read()).value.entries.find(e => e.name === name)
@@ -138,9 +138,11 @@ export class LocalVault implements SecretProvider {
     const key = await this.keyProvider(this.dir, false)
     try {
       const data = Buffer.from(entry.secret, 'base64')
-      return Buffer.from(xchacha20poly1305(key, data.subarray(0, 24), Buffer.from(name)).decrypt(data.subarray(24))).toString('utf8')
+      return { password: Buffer.from(xchacha20poly1305(key, data.subarray(0, 24), Buffer.from(name)).decrypt(data.subarray(24))).toString('utf8'), username: entry.username }
     } finally { key.fill(0) }
   }
+  async password(reference: string | undefined): Promise<string | undefined> { return (await this.credential(reference))?.password }
+  sudoCredential(host: Host) { return this.credential(host.sudoSecret) }
   sudoPassword(host: Host) { return this.password(host.sudoSecret) }
   loginPassword(host: Host) { return this.password(host.loginSecret) }
 }
@@ -149,6 +151,12 @@ export class LocalVault implements SecretProvider {
 export function routeSecrets(local: LocalVault, fallback: SecretProvider): SecretProvider {
   return {
     sudoPassword: (host, signal) => host.sudoSecret?.startsWith('local:') ? local.sudoPassword(host) : fallback.sudoPassword(host, signal),
+    sudoCredential: async (host, signal) => {
+      const provider = host.sudoSecret?.startsWith('local:') ? local : fallback
+      if (provider.sudoCredential) return provider.sudoCredential(host, signal)
+      const password = await provider.sudoPassword(host, signal)
+      return password === undefined ? undefined : { password }
+    },
     loginPassword: (host, signal) => host.loginSecret?.startsWith('local:') ? local.loginPassword(host) : fallback.loginPassword(host, signal),
   }
 }

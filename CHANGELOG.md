@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.9.1 — 2026-10-27
+
+- Use the sudo credential’s username to select its SSH account independently of the normal login account; preserve existing logins when the username matches or is blank, show the account in the panel, and distinguish SSH authentication failures in sudo tests. The account must allow SSH login and have sudo permission.
+- Keep password validation and elevated execution under the same parent shell, fixing sudo failures on servers that scope non-TTY credential timestamps to the parent process.
+
 ## 0.9.0 — 2026-10-27
 
 - Restyle task authorization and notifications as compact settings rows with accessible switches, selectable channel chips, a clear unconfigured state, and a responsive save footer. Hide notification preferences when no channels are configured and disable them until a channel is selected.

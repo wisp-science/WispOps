@@ -24,7 +24,7 @@ import { join } from 'node:path'
 import { xchacha20poly1305 } from '@noble/ciphers/chacha'
 import type { HostSpec } from './config.ts'
 import type { Host } from './inventory.ts'
-import type { SecretProvider } from './secrets.ts'
+import type { SecretProvider, SudoCredential } from './secrets.ts'
 
 export const KEYCHAIN_SERVICE = 'WispTerm Password Store'
 export const KEYCHAIN_ACCOUNT = 'vault-key'
@@ -135,15 +135,19 @@ export class WispTermSecrets implements SecretProvider {
 
   constructor(readonly dir: string, private readonly readKey: (dir: string) => Promise<Uint8Array> = readVaultKey) {}
 
-  sudoPassword(host: Host): Promise<string | undefined> {
+  async sudoPassword(host: Host): Promise<string | undefined> {
+    return (await this.sudoCredential(host))?.password
+  }
+
+  sudoCredential(host: Host): Promise<SudoCredential | undefined> {
     return this.open(host.sudoSecret, host.name)
   }
 
-  loginPassword(host: Host): Promise<string | undefined> {
-    return this.open(host.loginSecret, host.name)
+  async loginPassword(host: Host): Promise<string | undefined> {
+    return (await this.open(host.loginSecret, host.name))?.password
   }
 
-  private async open(name: string | undefined, hostName: string): Promise<string | undefined> {
+  private async open(name: string | undefined, hostName: string): Promise<SudoCredential | undefined> {
     if (name === undefined) return undefined
     const wanted = name.toLowerCase()
     const entry = (await readVaultFile(this.dir)).find(e => (e.name as string).toLowerCase() === wanted)
@@ -151,7 +155,7 @@ export class WispTermSecrets implements SecretProvider {
     if (entry.agent === false) throw new Error(`WispTerm Password Store entry "${name}" is marked not for agents`)
     if (typeof entry.secret !== 'string' || entry.secret.length === 0) throw new Error(`WispTerm Password Store entry "${name}" has no password`)
     this.key ??= await this.readKey(this.dir)
-    return openSecret(entry.secret, this.key)
+    return { password: openSecret(entry.secret, this.key), username: typeof entry.username === 'string' ? entry.username : '' }
   }
 
   dispose(): void {

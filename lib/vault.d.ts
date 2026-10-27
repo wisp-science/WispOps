@@ -1,5 +1,5 @@
 import type { Host } from './inventory.ts';
-import type { SecretProvider } from './secrets.ts';
+import type { SecretProvider, SudoCredential } from './secrets.ts';
 export interface Credential {
     name: string;
     username: string;
@@ -37,7 +37,9 @@ export declare class LocalVault implements SecretProvider {
         entries: PortableCredential[];
     }>;
     replaceFromSync(entries: PortableCredential[], revision: string, participate: (commit: () => Promise<void>) => Promise<void>): Promise<void>;
+    private credential;
     password(reference: string | undefined): Promise<string | undefined>;
+    sudoCredential(host: Host): Promise<SudoCredential | undefined>;
     sudoPassword(host: Host): Promise<string | undefined>;
     loginPassword(host: Host): Promise<string | undefined>;
 }

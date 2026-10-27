@@ -118,10 +118,20 @@ export class OpsService {
   /** Run one script on each host, recording every attempt. */
   async execute(hosts: readonly Host[], script: string, options: ExecOptions): Promise<RunResult[]> {
     const results = await this.runner.runMany(hosts, async host => {
-      const sudoPassword = options.sudo ? await this.secrets.sudoPassword(host, options.signal) : undefined
-      const loginPassword = host.auth === 'password' ? await this.secrets.loginPassword(host, options.signal) : undefined
+      const sudoCredential = !options.sudo ? undefined : this.secrets.sudoCredential
+        ? await this.secrets.sudoCredential(host, options.signal)
+        : { password: await this.secrets.sudoPassword(host, options.signal) }
+      const sudoPassword = sudoCredential?.password
+      const sudoAccount = sudoCredential && 'username' in sudoCredential ? sudoCredential.username?.trim() : undefined
+      // Keep the inventory name and permission table; only the transport account changes.
+      // An explicit -l overrides a user embedded in the destination and ssh_config.
+      if (sudoAccount && !/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(sudoAccount)) throw new Error('sudo 凭据的用户名格式不正确，请在密码库中填写实际系统账号，或留空沿用 SSH 登录账号。')
+      const loginAccount = sudoAccount ? await this.runner.loginUser(host, options.signal) : undefined
+      const alternateAccount = !!sudoAccount && sudoAccount !== loginAccount
+      const connectionHost = alternateAccount ? { ...host, user: sudoAccount, auth: 'password' as const } : host
+      const loginPassword = alternateAccount ? sudoPassword : host.auth === 'password' ? await this.secrets.loginPassword(host, options.signal) : undefined
       return {
-        host,
+        host: connectionHost,
         script,
         sudo: options.sudo,
         ...sudoPassword === undefined ? {} : { sudoPassword },

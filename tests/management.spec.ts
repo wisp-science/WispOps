@@ -111,6 +111,58 @@ describe('credentials associated with servers', () => {
     expect(host.sudoSecret).toBeUndefined()
     expect(await readFile(join(dir, 'inventory.yml'), 'utf8')).toBe(yaml)
   })
+
+  it('uses the sudo credential account only for elevated connections, preserving the inventory and login credential', async () => {
+    await saveCredential()
+    await vault.save({ ...credential, name: 'admin', username: 'admin', password: 'admin-test-password' }, (await vault.list()).revision)
+    await manager.dispatch({ action: 'addHost', host: { name: 'separate', ssh: 'tester@192.0.2.10', user: 'tester', port: 2222 }, revision: await revision() })
+    await manager.dispatch({ action: 'bindCredentials', host: 'separate', binding: { auth: 'password', loginSecret: 'local:login', sudoSecret: 'local:admin' }, revision: await revision() })
+    const run = vi.spyOn(service.runner, 'run').mockResolvedValue({ host: 'separate', status: 'ok', exitCode: 0, stdout: 'root\n', stderr: '', truncated: false, durationMs: 1 })
+    await manager.dispatch({ action: 'testBinding', host: 'separate', role: 'login', ref: 'local:login' })
+    expect(run.mock.calls[0]![0]).toMatchObject({ host: { name: 'separate', user: 'tester' }, loginPassword: credential.password, sudo: false })
+    expect(run.mock.calls[0]![0].sudoPassword).toBeUndefined()
+    await manager.dispatch({ action: 'testBinding', host: 'separate', role: 'sudo', ref: 'local:admin' })
+    const elevated = run.mock.calls[1]![0]
+    expect(elevated).toMatchObject({ host: { name: 'separate', user: 'admin', ssh: 'tester@192.0.2.10', port: 2222, auth: 'password', policy: { sudo: 'ask' } }, loginPassword: 'admin-test-password', sudoPassword: 'admin-test-password', sudo: true })
+    expect(service.runner.argv(elevated.host, true, true)).toEqual(expect.arrayContaining(['-l', 'admin', '-p', '2222']))
+    expect(service.inventory.hosts.get('separate')).toMatchObject({ user: 'tester', loginSecret: 'local:login' })
+    const view = await snap()
+    expect(view.hosts.find((h: any) => h.name === 'separate').credentials.sudo.username).toBe('admin')
+    const audit = JSON.stringify(await service.store.readAudit({ limit: 10 }))
+    for (const output of [JSON.stringify(view), audit]) {
+      expect(output).not.toContain(credential.password)
+      expect(output).not.toContain('admin-test-password')
+    }
+    run.mockRestore()
+  })
+
+  it('keeps SSH key authentication when the sudo username matches, and preserves blank-account compatibility', async () => {
+    await saveCredential()
+    await manager.dispatch({ action: 'addHost', host: { name: 'same', ssh: 'tester@192.0.2.10' }, revision: await revision() })
+    const run = vi.spyOn(service.runner, 'run').mockResolvedValue({ host: 'same', status: 'ok', exitCode: 0, stdout: 'root\n', stderr: '', truncated: false, durationMs: 1 })
+    await manager.dispatch({ action: 'testBinding', host: 'same', role: 'sudo', ref: 'local:login' })
+    expect(run.mock.calls[0]![0].host.auth).not.toBe('password')
+    expect(run.mock.calls[0]![0].loginPassword).toBeUndefined()
+    expect(run.mock.calls[0]![0].sudoPassword).toBe(credential.password)
+    await vault.save({ ...credential, username: '', password: undefined }, (await vault.list()).revision)
+    await manager.dispatch({ action: 'testBinding', host: 'same', role: 'sudo', ref: 'local:login' })
+    expect(run.mock.calls[1]![0].host.user).toBeUndefined()
+    expect(run.mock.calls[1]![0].host.auth).not.toBe('password')
+    run.mockRestore()
+  })
+
+  it('rejects unusable sudo account names and disabled credentials before starting SSH', async () => {
+    await saveCredential()
+    const run = vi.spyOn(service.runner, 'run')
+    for (const extra of [{ username: '-oProxyCommand=bad' }, { agent: false }]) {
+      await vault.save({ ...credential, ...extra, password: undefined }, (await vault.list()).revision)
+      const result = await manager.dispatch({ action: 'testBinding', host: 'a', role: 'sudo', ref: 'local:login' }) as any
+      expect(result.status).toBe('failed')
+      expect(result.error).not.toContain(credential.password)
+    }
+    expect(run).not.toHaveBeenCalled()
+    run.mockRestore()
+  })
   it('rejects invalid and stale server selections before writing or accessing the key', async () => {
     for (const associations of [[], {}, [{ host: 'all', login: true, sudo: false }], [{ host: 'a', login: false, sudo: false }], [{ host: 'a', login: 'yes', sudo: false }], [{ host: 'a', login: true, sudo: false }, { host: 'a', login: false, sudo: true }]]) {
       await expect(saveLinked(associations)).rejects.toThrow()

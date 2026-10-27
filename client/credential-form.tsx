@@ -10,7 +10,7 @@ export function credentialRoles(host: Host, name: string) {
   return (['login', 'sudo'] as const).filter(role => host.credentials[role]?.provider === 'local' && host.credentials[role]?.name === name)
 }
 
-// The vault form only stores the password; servers pick credentials from their own SSH login and sudo rows.
+// Servers pick credentials by purpose; a sudo credential may name a separate SSH account.
 export function CredentialForm({ data, entry, target, submit, busy }: {
   data: Snapshot; entry?: Credential; target?: CredentialTarget; busy: boolean
   submit: (value: Record<string, unknown>) => Promise<void>
@@ -39,7 +39,7 @@ export function CredentialForm({ data, entry, target, submit, busy }: {
   return <form onSubmit={save} autoComplete="off"><fieldset className="wo-form-body" disabled={busy}>
     {target ? <p className="wo-target-note">{tr("after.saving.this.credential.will.be", { p0: target.host, p1: roleTitle(target.role) })}</p> : <p className="wo-muted">{tr("the.password.is.stored.in.the")}</p>}
     <div className="wo-form-grid"><label className="wo-field"><span>{tr("credential.name")}</span><input name="name" value={name} onChange={e => setName(e.target.value)} readOnly={!!entry} required maxLength={100}/></label>
-    <label className="wo-field"><span>{tr("username.note")}</span><input name="username" value={username} onChange={e => setUsername(e.target.value)} autoComplete="off"/><small>{tr("for.identification.only.connections.use")}</small></label></div>
+    <label className="wo-field"><span>{tr("credential.username")}</span><input name="username" value={username} onChange={e => setUsername(e.target.value)} autoComplete="off"/><small>{tr("credential.username.hint")}</small></label></div>
     <div className="wo-field wo-password-field">
       <div className="wo-password-head"><label htmlFor="wo-credential-password">{entry ? tr("new.password.leave.blank.to.keep") : tr("password")}</label>
         <button type="button" className="wo-text-button" aria-pressed={reveal} onClick={() => setReveal(!reveal)}>{reveal ? tr("hide.password") : tr("show.password")}</button></div>
@@ -58,7 +58,7 @@ export interface BindingTest { status: string; user: string; error: string }
 export function BindingTestResult({ host, role, result, error }: { host: string; role: Role; result?: BindingTest; error?: string }) {
   const verdict = (value: BindingTest) => {
     if (value.status === 'ok') return role === 'login' ? tr("login.succeeded.as", { p0: value.user, p1: host }) : tr("sudo.works.as", { p0: value.user, p1: host })
-    return ({ 'auth-failed': tr("ssh.login.failed.check.the.password"), 'sudo-required': tr("sudo.rejected.the.password.or.needs"), unreachable: tr("the.server.is.unreachable"), timeout: tr("the.connection.timed.out"), blocked: tr("logins.are.paused.after.repeated.failures") } as Record<string, string>)[value.status] ?? tr("the.test.command.failed")
+    return ({ 'auth-failed': role === 'sudo' ? tr("sudo.account.login.failed") : tr("ssh.login.failed.check.the.password"), 'sudo-required': tr("sudo.rejected.the.password.or.needs"), unreachable: tr("the.server.is.unreachable"), timeout: tr("the.connection.timed.out"), blocked: tr("logins.are.paused.after.repeated.failures") } as Record<string, string>)[value.status] ?? tr("the.test.command.failed")
   }
   return <div role="status" className={`wo-test-result ${result?.status === 'ok' ? 'good' : 'bad'}`}>{result ? verdict(result) : error}{result?.error && <small>{result.error}</small>}</div>
 }
@@ -78,6 +78,7 @@ export function RoleBindingForm({ host, role, entries, submit, busy, create, tes
     finally { setTesting(false) }
   }
   const legacy = current && !entries.some(e => `local:${e.name}` === current) ? current : ''
+  const sudoAccount = entries.find(e => `local:${e.name}` === ref)?.username || (ref === current ? host.credentials.sudo?.username : '')
   const option = (value: string, title: string, detail?: string, badge?: string) => <label className="wo-pick-option" key={value || 'none'}>
     <input type="radio" name="ref" value={value} checked={ref === value} onChange={() => setRef(value)}/>
     <div><strong>{title}{value === current && current ? <span className="wo-muted">{tr("current.binding")}</span> : null}</strong>{detail && <small>{detail}</small>}</div>
@@ -90,6 +91,7 @@ export function RoleBindingForm({ host, role, entries, submit, busy, create, tes
       {legacy && option(legacy, legacy)}
       {entries.map(e => option(`local:${e.name}`, e.name, e.username || tr("no.username.set"), e.agent ? undefined : tr("automation.disabled")))}
     </div>
+    {role === 'sudo' && <p className="wo-muted">{sudoAccount ? tr("sudo.account.connection", { p0: sudoAccount }) : tr("sudo.account.current.login")}</p>}
     <p className="wo-muted">{entries.length ? tr("need.another.credential") : tr("the.vault.is.empty")}<button type="button" disabled={busy || testing} onClick={create}>{tr("create.a.credential.and.link.this")}</button></p>
     {outcome && <BindingTestResult host={host.name} role={role} result={outcome.result} error={outcome.error}/>}
     <div className="wo-form-actions"><button type="button" disabled={busy || testing} onClick={() => void runTest()}>{testing ? tr("testing") : role === 'login' ? tr("test.login") : tr("test.sudo")}</button><button className="wo-primary" disabled={busy || testing || ref === current}>{busy ? tr("saving") : tr("save.bindings")}</button></div>

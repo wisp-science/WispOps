@@ -48,6 +48,7 @@ function CredentialBindingRow({ host, role, api, busy, change }: { host: Host; r
         <button type="button" className="wo-text-button" disabled={busy || testing} aria-label={tr("test.credential.for", { p0: host.name, p1: roleTitle(role) })} onClick={() => void runTest()}>{testing ? tr("testing") : tr("test.credential")}</button>
       </div>
     </div>
+    {role === 'sudo' && host.credentials.sudo?.username && <p className="wo-muted">{tr("sudo.account.connection", { p0: host.credentials.sudo.username })}</p>}
     {outcome && <BindingTestResult host={host.name} role={role} {...outcome}/>}
   </div>
 }

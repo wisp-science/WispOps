@@ -1,5 +1,5 @@
 export interface Credential { name: string; username: string; note: string; agent: boolean; hasSecret: boolean }
-export interface CredentialRef { ref: string; name: string; provider: string; status: string }
+export interface CredentialRef { ref: string; name: string; username?: string; provider: string; status: string }
 export interface Host {
   name: string; ssh?: string; user?: string; port?: number; description?: string; groups: string[]; identityFile?: string;
   /** Added in the panel; YAML and WispTerm hosts are edited where they are defined. */

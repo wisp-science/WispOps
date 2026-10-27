@@ -117,7 +117,7 @@ The default `secrets.provider: local` uses WispOps's own `dataDir/vault.json`, e
 Explicit `local:<entry name>` references use this vault regardless of the configured legacy provider. Optional `secrets.provider: wispterm` reads WispTerm's existing store for unprefixed references without writing to it. Entries with automation access disabled are refused. Passwords are never shown in edit forms; leaving the password blank preserves it. Names, usernames and notes are ordinary metadata and must not contain secrets.
 
 Hosts reference entries in two ways:
-- `sudoSecret` names the sudo password. The remote side reads the password with `read`, pipes it into `sudo -S -v`, then runs the script through `sudo -n`.
+- `sudoSecret` names the sudo credential. A blank username keeps the SSH login account; a different username uses that credential for a separate SSH connection and sudo authentication, without changing normal logins. The account must allow SSH access and have sudo permission. The remote wrapper reads the password with `read`, pipes it into `sudo -S -v`, then runs `sudo -n` under the same parent shell so parent-scoped timestamps remain valid. `sudoUser` still selects the final run-as identity (root by default).
 - `auth: password` plus `loginSecret` enables password login through a one-shot askpass (OpenSSH 8.4 or later).
 
 Passwords never appear in SSH process arguments, model tool results, or the operations audit log, and any echo of one is redacted.

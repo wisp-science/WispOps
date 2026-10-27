@@ -42,6 +42,7 @@ describe('WispTerm Password Store', () => {
   it('opens the sudo password case-insensitively and honours the agent flag', async () => {
     const secrets = new WispTermSecrets(dir, async () => key)
     expect(await secrets.sudoPassword(host({ sudoSecret: 'GPU-Root' }))).toBe('s3cret!')
+    expect(await secrets.sudoCredential(host({ sudoSecret: 'GPU-Root' }))).toEqual({ password: 's3cret!', username: 'root' })
     expect(await secrets.sudoPassword(host({}))).toBeUndefined()
     await expect(secrets.sudoPassword(host({ sudoSecret: 'bank' }))).rejects.toThrow(/not for agents/)
     await expect(secrets.sudoPassword(host({ sudoSecret: 'empty' }))).rejects.toThrow(/no password/)

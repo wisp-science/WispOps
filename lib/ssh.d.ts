@@ -61,8 +61,10 @@ export declare function legacyDecoder(platform?: NodeJS.Platform, locale?: strin
 export declare function decodeStderr(bytes: Buffer, legacy: TextDecoder | undefined): string;
 /**
  * Remote command that validates sudo with a password read from stdin, then
- * runs the rest of stdin as root through the cached credential. The password
- * reaches only the `read` builtin and sudo's own stdin: if sudo needs no
+ * runs the rest of stdin through the cached credential. Both sudo calls keep
+ * the same parent shell: replacing it with exec changes the ppid timestamp
+ * scope on sessions without a tty and loses the successful authentication.
+ * The password reaches only the `read` builtin and sudo's own stdin: if sudo needs no
  * password (NOPASSWD or a cached timestamp) the piped line is discarded by
  * sudo, so it can never be executed as a script line.
  */
@@ -95,6 +97,8 @@ export declare class SshRunner {
     private readonly legacy;
     readonly guard: AuthGuard;
     constructor(spec: SshSpec, maxOutputBytes: number, dataDir: string);
+    /** Resolve ssh_config aliases locally, without opening a connection or decrypting a login password. */
+    loginUser(host: Host, signal?: AbortSignal): Promise<string>;
     /** The argv for one host; the destination always follows `--`, so it cannot be parsed as an option. */
     argv(host: Host, sudo: boolean, withPassword?: boolean): string[];
     run(request: RunRequest): Promise<RunResult>;

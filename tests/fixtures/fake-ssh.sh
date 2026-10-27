@@ -2,6 +2,10 @@
 # Stand-in for OpenSSH: skips options up to `--`, takes the destination, and
 # runs the remote command locally. Destinations starting with `down` or
 # `locked` simulate an unreachable host and an authentication failure.
+if [ "$1" = "-G" ]; then
+  printf 'user %s\n' "${FAKE_SSH_USER:-fixture-user}"
+  exit 0
+fi
 while [ $# -gt 0 ]; do
   if [ "$1" = "--" ]; then shift; break; fi
   shift

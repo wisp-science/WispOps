@@ -6,12 +6,19 @@
  * @module dsh-wisp-ops/secrets
  */
 import type { Host } from './inventory.ts';
+/** A credential is private to the execution path, including when it selects another sudo login account. */
+export interface SudoCredential {
+    password: string;
+    username?: string;
+}
 export interface SecretProvider {
     /**
      * The sudo password for one host, or undefined to run `sudo -n` (NOPASSWD
      * rules or no password configured).
      */
     sudoPassword(host: Host, signal?: AbortSignal): Promise<string | undefined>;
+    /** Optional account associated with the sudo password; blank means the configured SSH account. */
+    sudoCredential?(host: Host, signal?: AbortSignal): Promise<SudoCredential | undefined>;
     /** The login password of a host with `auth: password`. */
     loginPassword(host: Host, signal?: AbortSignal): Promise<string | undefined>;
 }

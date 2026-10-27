@@ -58,6 +58,8 @@
 - 主机配置可显式引用 `loginSecret: local:条目名` / `sudoSecret: local:条目名`。显式 `local:` 引用也适用于保留旧 `provider: none` 或 `provider: wispterm` 的安装。
 - 备份和迁移需要同时保全密文与对应密钥。macOS 密钥与数据目录对应；Windows 密钥由原用户 DPAPI 保护，不能只复制 `vault.json` 到另一台机器便恢复使用。
 
+sudo 凭据的用户名用于选择执行账号：留空时沿用 SSH 登录账号；与配置的登录用户不同时，仅提权操作使用这条凭据单独 SSH 登录，随后验证 sudo。普通 SSH 操作仍使用原登录凭据。独立账号必须允许 SSH 登录；不会因登录失败而自动反复尝试其他账号或绕过权限检查。`sudoUser` 仍表示 sudo 的目标身份（默认 root），与凭据所属的登录账号不同。
+
 ## 可选的 WispTerm 兼容来源
 
 只有显式设置 `secrets.provider: wispterm` 时，未带 `local:` 前缀的旧凭据引用才从 WispTerm 的 Password Store **只读**获取；不影响面板内置密码库，也不要求普通安装使用 WispTerm：
@@ -67,6 +69,6 @@
 - 条目被标记为“不允许 agent 使用”（`agent:false`）时直接拒绝。
 - 在主机上写 `sudoSecret: <条目名>`（sudo 密码）或 `auth: password` + `loginSecret: <条目名>`（SSH 密码登录，需 OpenSSH ≥ 8.4）。
 
-sudo 的实现方式：远端先 `IFS= read -r p`，把密码管道给 `sudo -S -v` 做一次验证，然后用 `exec sudo -n -- sh -s` 执行脚本。密码只经过 `read` 内建命令和 sudo 自己的 stdin，不出现在进程参数里，也不会被当作脚本行执行（免密 sudo 时那一行会被 sudo 丢弃）；输出中如果出现密码原文会被替换为 `[REDACTED]`。注意：这依赖 sudo 的凭据缓存（默认开启）；如果服务器设置了 `timestamp_timeout=0`，请改用 NOPASSWD 规则。
+sudo 的实现方式：远端先 `IFS= read -r p`，把密码管道给 `sudo -S -v` 做一次验证，然后在同一父 shell 下用 `sudo -n -- sh -s` 执行脚本；不使用 `exec` 替换父 shell，避免无 TTY 会话中按父进程绑定的 sudo 缓存失效。密码只经过 `read` 内建命令和 sudo 自己的 stdin，不出现在进程参数里，也不会被当作脚本行执行（免密 sudo 时那一行会被 sudo 丢弃）；输出中如果出现密码原文会被替换为 `[REDACTED]`。注意：这依赖 sudo 的凭据缓存（默认开启）；如果服务器设置了 `timestamp_timeout=0`，请改用 NOPASSWD 规则。
 
 导入 WispTerm 的 SSH 主机（`secrets.importWisptermHosts: true`）只读取主机名、地址、用户、端口、跳板机和密钥路径。WispTerm 这个文件里的 password 字段是明文，插件**从不解码**。密码登录的主机会默认使用和主机同名的密码库条目。

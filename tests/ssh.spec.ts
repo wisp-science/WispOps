@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { resolveConfig } from '../src/config.ts'
 import { Inventory } from '../src/inventory.ts'
 import type { Host } from '../src/inventory.ts'
@@ -23,6 +23,7 @@ beforeAll(async () => {
   host = new Inventory(config.hosts, {}, config.defaultPolicy).select('box')[0] as Host
 })
 afterAll(async () => { await rm(dir, { recursive: true, force: true }) })
+afterEach(() => { delete process.env.FAKE_SUDO_BIND_PARENT; delete process.env.FAKE_SUDO_NOPASSWD })
 
 describe('SshRunner', () => {
   it('pipes the script on stdin', async () => {
@@ -43,6 +44,19 @@ describe('SshRunner', () => {
     const r = await runner.run({ host, script: 'echo should-not-run', sudo: true, sudoPassword: 'wrong', timeoutMs: 5000 })
     expect(r.status).toBe('sudo-required')
     expect(r.stdout).not.toContain('should-not-run')
+  })
+
+  it('keeps sudo validation and execution in the same parent-scoped timestamp session', async () => {
+    process.env.FAKE_SUDO_BIND_PARENT = '1'
+    await rm(process.env.FAKE_SUDO_STATE as string, { force: true })
+    const r = await runner.run({ host, script: 'echo root=$FAKE_ROOT', sudo: true, sudoPassword: 'pa$$ w0rd', timeoutMs: 5000 })
+    expect(r).toMatchObject({ status: 'ok', stdout: 'root=1\n' })
+  })
+
+  it('never treats a supplied password as script input when sudo does not consume it', async () => {
+    process.env.FAKE_SUDO_NOPASSWD = '1'
+    const r = await runner.run({ host, script: 'echo safe; cat', sudo: true, sudoPassword: 'echo credential-must-not-run', timeoutMs: 5000 })
+    expect(r).toMatchObject({ status: 'ok', stdout: 'safe\n' })
   })
 
   it('reports sudo that needs a password when none is stored', async () => {
@@ -70,6 +84,14 @@ describe('SshRunner', () => {
     expect(argv).toEqual(expect.arrayContaining(['-J', 'bastion', '-i', '/k/id', 'IdentitiesOnly=yes', '-p', '2222']))
     const pw = runner.argv({ ...host, auth: 'password' }, false)
     expect(pw).toEqual(expect.arrayContaining(['BatchMode=no', 'StrictHostKeyChecking=accept-new', 'NumberOfPasswordPrompts=1']))
+  })
+
+  it('resolves an alias user locally and respects explicit user precedence', async () => {
+    expect(await runner.loginUser({ ...host, ssh: 'alias' })).toBe('fixture-user')
+    expect(await runner.loginUser({ ...host, ssh: 'alice@192.0.2.10' })).toBe('alice')
+    expect(await runner.loginUser({ ...host, user: 'admin', ssh: 'alice@192.0.2.10' })).toBe('admin')
+    const unavailable = new SshRunner({ ...resolveConfig({}).ssh, binary: join(dir, 'missing-ssh'), controlPersistSec: 0 }, 1024, dir)
+    await expect(unavailable.loginUser({ ...host, ssh: 'alias' })).rejects.toThrow('显式填写用户名')
   })
 })
 
