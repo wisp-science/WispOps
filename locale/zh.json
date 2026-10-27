@@ -215,7 +215,7 @@
     "after.saving.choose.a.report.session": "保存后，在例行任务页选择汇报会话并启用调度。",
     "save.task": "保存任务",
     "the.credential.will.replace": "{p0}：{p1} 凭据将替换「{p2}」。",
-    "ssh.will.switch.to.password.authentication": "{p0}：SSH 将改用密码登录。",
+    "ssh.will.switch.to.password.authentication": "{p0}：SSH 登录将由密钥改为使用此密码。",
     "and.use.ssh.keys.configuration": "，改用 SSH 密钥 / 配置",
     "unlink": "{p0}：解除 {p1} 关联{p2}。",
     "link.servers.and.purposes": "关联服务器与用途",
@@ -227,12 +227,12 @@
     "no.servers.selected.saving.will.remove": "未选择服务器，保存后将解除此凭据的全部关联。",
     "select.at.least.one.server.and": "请选择至少一台服务器及用途。",
     "credential.name": "凭据名称",
-    "username.note": "用户名（备注）",
+    "username.note": "用户名（仅备注）",
     "new.password.leave.blank.to.keep": "新密码（留空则保留原密码）",
     "password": "密码",
     "notes": "备注",
     "allow.operations.tools.and.recurring.tasks": "允许运维工具及例行任务使用此凭据",
-    "connections.use.the.server.s.username": "连接用户名以服务器配置为准；sudo 仍遵循服务器及任务授权。已保存的密码不会返回页面或模型。",
+    "connections.use.the.server.s.username": "sudo 仍遵循服务器及任务授权。",
     "encrypting.and.saving": "加密保存中…",
     "encrypt.save.and.update.bindings": "加密保存并更新关联",
     "save.a.template.then.link.one": "保存到任务库后，可以随时关联一台或多台服务器。此处不启用调度。",
@@ -337,6 +337,13 @@
     "fleet.short.disk": "磁盘",
     "fleet.short.mem": "内存",
     "fleet.error": "读取巡检历史失败。",
-    "fleet.loading": "正在读取巡检历史…"
+    "fleet.loading": "正在读取巡检历史…",
+    "for.identification.only.connections.use": "仅供自己识别；实际连接使用各服务器配置的用户名。",
+    "list.separator": "、",
+    "show.password": "显示",
+    "hide.password": "隐藏",
+    "this.password.will.be.used.for": "此密码将用于：",
+    "the.selected.servers.log.in.as": "所选服务器的登录用户名不同（{p0}），它们将共用这一个密码。若各台密码不同，请分别创建凭据。",
+    "encrypted.on.save.never.shown.again": "保存后加密存储，不会再显示在页面或发送给模型。"
   }
 }

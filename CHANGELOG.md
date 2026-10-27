@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Make the credential dialog's password section clearer: a show/hide toggle, a list of the selected servers and accounts the password will be used for, a warning when those servers log in as different users, a combined note for servers switching from SSH keys to the password, and a hint that the username field is a note only.
+
 ## 0.7.1 — 2026-10-27
 
 - Add an uninstall-and-reinstall fallback with the official GitHub URL to update failure messages and installation documentation.

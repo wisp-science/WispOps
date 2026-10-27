@@ -215,7 +215,7 @@
     "after.saving.choose.a.report.session": "After saving, choose a report session and enable scheduling.",
     "save.task": "Save task",
     "the.credential.will.replace": "{p0}: the {p1} credential will replace “{p2}”.",
-    "ssh.will.switch.to.password.authentication": "{p0}: SSH will switch to password authentication.",
+    "ssh.will.switch.to.password.authentication": "{p0}: SSH login will switch from SSH keys to this password.",
     "and.use.ssh.keys.configuration": " and use SSH keys / configuration",
     "unlink": "{p0}: unlink {p1}{p2}.",
     "link.servers.and.purposes": "Link servers and purposes",
@@ -227,12 +227,12 @@
     "no.servers.selected.saving.will.remove": "No servers selected. Saving will remove all bindings for this credential.",
     "select.at.least.one.server.and": "Select at least one server and purpose.",
     "credential.name": "Credential name",
-    "username.note": "Username (note)",
+    "username.note": "Username (note only)",
     "new.password.leave.blank.to.keep": "New password (leave blank to keep the existing password)",
     "password": "Password",
     "notes": "Notes",
     "allow.operations.tools.and.recurring.tasks": "Allow operations tools and recurring tasks to use this credential",
-    "connections.use.the.server.s.username": "Connections use the server's username; sudo follows server and task authorization. Saved passwords are never returned to the page or model.",
+    "connections.use.the.server.s.username": "sudo still follows server and task authorization.",
     "encrypting.and.saving": "Encrypting and saving…",
     "encrypt.save.and.update.bindings": "Encrypt, save and update bindings",
     "save.a.template.then.link.one": "Save a template, then link one or more servers. This does not enable scheduling.",
@@ -337,6 +337,13 @@
     "fleet.short.disk": "disk",
     "fleet.short.mem": "mem",
     "fleet.error": "Failed to load inspection history.",
-    "fleet.loading": "Loading inspection history…"
+    "fleet.loading": "Loading inspection history…",
+    "for.identification.only.connections.use": "For your own reference. Connections use the username configured on each server.",
+    "list.separator": ", ",
+    "show.password": "Show",
+    "hide.password": "Hide",
+    "this.password.will.be.used.for": "This password will be used for:",
+    "the.selected.servers.log.in.as": "The selected servers log in as different users ({p0}) and will all share this one password. Create a separate credential for each server whose password differs.",
+    "encrypted.on.save.never.shown.again": "Encrypted on save; never shown in the panel or sent to the model again."
   }
 }
