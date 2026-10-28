@@ -26,6 +26,7 @@ import { OpsSync } from './sync.ts'
 import { OpsUpdates } from './updates.ts'
 import { buildOverview, overviewLimit } from './overview.ts'
 import type { UpdateHost } from './updates.ts'
+import type { SpaceSnapshot } from './collectors/space.ts'
 
 export interface ScheduledRecord { id: string; title: string; sessionId: string; scheduledAt: string; status: string }
 export interface Scheduler {
@@ -69,7 +70,7 @@ export class OpsManager {
   /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups and inspections bypass the queue. */
   dispatch(value: unknown): Promise<unknown> {
     const request = object(value)
-    if (request.action === 'probeHosts' || request.action === 'auditLog' || request.action === 'inspectNow') return this.handle(request)
+    if (request.action === 'probeHosts' || request.action === 'auditLog' || request.action === 'inspectNow' || request.action === 'spaceUsage') return this.handle(request)
     const next = this.pending.then(() => this.handle(request))
     this.pending = next.catch(() => {})
     return next
@@ -89,6 +90,16 @@ export class OpsManager {
     const sinceHours = Math.min(Math.max(Number(request.sinceHours ?? 24 * 30) || 24 * 30, 1), 24 * 366)
     const rows = await this.service.store.readAudit({ ...host === undefined ? {} : { hosts: new Set([host]) }, sinceMs: Date.now() - sinceHours * 3_600_000, limit })
     return { rows: rows.map(r => ({ ...r, command: r.command.length > 400 ? `${r.command.slice(0, 400)}…` : r.command, ...r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) } })), limit, sinceHours, retentionMonths: this.service.config.retention.auditMonths }
+  }
+  /** The latest stored directory scan of each path on one server, for the space map; nothing runs remotely. */
+  private async spaceUsage(request: Request) {
+    const host = string(request, 'host')
+    if (!this.service.inventory.hosts.has(host)) throw new Error('服务器不存在。')
+    const latest = new Map<string, SpaceSnapshot>()
+    for (const row of await this.service.store.readBounded<SpaceSnapshot>('space', host)) {
+      if (row && typeof row.path === 'string' && typeof row.at === 'string' && Array.isArray(row.dirs)) latest.set(row.path, row)
+    }
+    return { host, entries: [...latest.values()].sort((a, b) => a.path.localeCompare(b.path)) }
   }
   private async scheduleRecords(): Promise<ScheduledRecord[]> {
     return await this.scheduler()?.catalog() ?? []
@@ -110,6 +121,7 @@ export class OpsManager {
     if (action === 'overview') return this.overview(request)
     if (action === 'probeHosts') return this.probeHosts(request)
     if (action === 'auditLog') return this.auditLog(request)
+    if (action === 'spaceUsage') return this.spaceUsage(request)
     if (['updateStatus', 'updateSettings', 'updateCheck', 'updateInstall'].includes(action)) {
       if (!this.updates) throw new Error('Update service is unavailable')
       return this.updates.dispatch(action, request)

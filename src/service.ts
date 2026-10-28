@@ -17,6 +17,8 @@ import { filesScript, parseFiles } from './collectors/files.ts'
 import type { FilesOptions, FilesReport, FilesSnapshot } from './collectors/files.ts'
 import { parseSecurity, securityScript } from './collectors/security.ts'
 import type { SecurityReport } from './collectors/security.ts'
+import { parseSpace, spaceScript } from './collectors/space.ts'
+import type { SpaceOptions, SpaceReport, SpaceSnapshot } from './collectors/space.ts'
 import { parseProbe, PROBE_SCRIPT } from './collectors/probe.ts'
 import type { HostProbe } from './collectors/probe.ts'
 import { Inventory } from './inventory.ts'
@@ -26,6 +28,7 @@ import type { RiskLevel } from './risk.ts'
 import type { SecretProvider } from './secrets.ts'
 import { SshRunner } from './ssh.ts'
 import type { RunResult, RunStatus } from './ssh.ts'
+import { normalizeRoot } from './space-tree.ts'
 import { OpsStore } from './store.ts'
 import type { Authorization } from './store.ts'
 
@@ -250,6 +253,22 @@ export class OpsService {
     const { report, snapshot } = parseFiles(result.stdout, options, previous)
     await this.store.appendBounded('files', host.name, { ...snapshot, key }, 60)
     return { report, result }
+  }
+
+  /** Directory sizes under one path for the space map, stored with the previous scan of the same path for growth. */
+  async space(host: Host, options: SpaceOptions & CollectorOptions): Promise<{ report?: SpaceReport; previous?: SpaceSnapshot; result: RunResult }> {
+    const path = normalizeRoot(options.path)
+    const previous = (await this.store.readBounded<SpaceSnapshot>('space', host.name)).filter(s => s.path === path).at(-1)
+    const [result] = await this.execute([host], spaceScript({ ...options, path }), {
+      ...this.collector(options),
+      timeoutMs: this.clampTimeout((options.walkTimeoutSec + 60) * 1000 + this.config.ssh.connectTimeoutSec * 1000),
+      maxOutputBytes: 2 * 1024 * 1024,
+    })
+    if (result === undefined) throw new Error('no result')
+    if (!result.stdout.includes('@@end')) return { result }
+    const report = parseSpace(result.stdout, { ...options, path })
+    await this.store.appendBounded<SpaceSnapshot>('space', host.name, { at: new Date().toISOString(), ...report }, 20)
+    return { report, ...previous === undefined ? {} : { previous }, result }
   }
 
   /** Security triage on a set of hosts. */

@@ -61,3 +61,10 @@ export interface AuditLog { rows: AuditRow[]; limit: number; sinceHours: number;
 /** A `Host` alias found in ssh_config by the `sshConfigHosts` action. */
 export interface SshConfigCandidate { alias: string; name: string; target: string; source: string; existing: boolean; excluded: boolean }
 export interface ProbeResult { host: string; status: string; probe?: HostProbe; error: string }
+/** Mirrors src/collectors/space.ts SpaceSnapshot as the `spaceUsage` action returns it. */
+export interface SpaceScan {
+  at: string; path: string; depth: number; fullVisibility: boolean; walkIncomplete: boolean; permissionDenied: boolean;
+  filesystem?: { filesystem: string; type?: string; sizeKb: number; usedKb: number; availKb: number; usePct: number; mount: string };
+  /** `[path, kb]`, largest first; `dirCount` above its length means smaller directories were dropped. */
+  dirs: [string, number][]; dirCount: number; minKb: number;
+}

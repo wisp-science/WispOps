@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a **Directory space** preset template (`playbook: space`) that finds which folders take the most space. Each run measures directories up to five levels below the scan paths with `du -x` (one filesystem, the 2000 largest of at least 1 MB), stores the scan per server, and reports the largest directories nested with growth since the previous scan. **Space map** on the task card and in server details opens a treemap of the latest scan: blocks sized by usage with the next level drawn inside, click to open a directory and use the path to go back up, free space shown as a hatched block at a mount point, and a list view. Unreadable directories, timeouts and dropped small directories are flagged; scans are read through a new owner-only `spaceUsage` action.
 - Fleet overview: the button beside the 10/30/90 range is now **Inspect all**, which inspects every server read-only (four at a time) and shows progress such as "Inspecting 2/4…" and a per-state summary at the end; it previously only reread saved history, so nothing visibly happened. Each finished server updates the matrix immediately.
 - "Inspect now" no longer blocks the rest of the panel: inspections bypass the management write queue, run in parallel across servers, and only disable the button of the server being inspected or queued. Repeated requests for one server join the run in flight. The page's Refresh button now also reloads the fleet matrix.
 

@@ -7,7 +7,7 @@ function Field({ title, children, hint }: { title: string; children: ReactNode; 
   return <label className="wo-field"><span>{title}</span>{children}{hint && <small>{hint}</small>}</label>
 }
 
-const playbookTitle = (playbook: string) => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("custom.checks") } as Record<string, string>)[playbook] ?? playbook
+const playbookTitle = (playbook: string) => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), space: tr("space.usage"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("custom.checks") } as Record<string, string>)[playbook] ?? playbook
 
 /** `draft` reviews an agent's proposal as a new template; `chat` (new templates only) hands what is filled in so far to a conversation. */
 export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }: { template?: TaskTemplate; copy?: boolean; draft?: boolean; chat?: { session: string; send: (prompt: string) => void }; zone: string; busy: boolean; submit: (value: TaskTemplate) => Promise<void> }) {
@@ -28,7 +28,7 @@ export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }
       definition: { playbook, instruction: String(f.get('instruction')),
         ...(() => { const commands = String(f.get('commands') ?? '').split('\n').map(s => s.trim()).filter(Boolean); return commands.length ? { commands } : {} })(),
         schedule: { daily: String(f.get('time')), timeZone: String(f.get('zone')) },
-        ...(['disk', 'new-files'].includes(playbook) ? { paths: String(f.get('paths')).split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
+        ...(['disk', 'space', 'new-files'].includes(playbook) ? { paths: String(f.get('paths')).split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
         ...(playbook === 'new-files' ? { days: Number(f.get('days')) } : {}), ...(playbook === 'security' ? { hours: Number(f.get('hours')) } : {}),
       } })
   }
@@ -37,11 +37,11 @@ export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }
     <div className="wo-form-grid"><Field title={tr("template.id")} hint={tr("e.g.daily.health")}><input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={80} defaultValue={copy ? `${template?.id.replace(/^builtin\./, '')}-copy` : template?.id} readOnly={!!template && !copy && !draft}/></Field><Field title={tr("template.title")}><input name="title" required defaultValue={template ? `${template.title}${copy ? tr("copy") : ''}` : ''} maxLength={120}/></Field></div>
     <Field title={tr("category")}><input name="category" defaultValue={template?.category ?? tr("custom.2")} required list="wo-categories"/><datalist id="wo-categories"><option value={tr("core.operations")}/><option value={tr("security")}/><option value={tr("application.services")}/><option value={tr("data.management")}/><option value={tr("compute.cluster")}/></datalist></Field>
     <Field title={tr("short.description")}><input name="description" defaultValue={template?.description} maxLength={1000}/></Field>
-    <Field title={tr("checks")}><select value={playbook} onChange={e => setPlaybook(e.target.value as typeof playbook)}><option value="inspect">{tr("health.inspection")}</option><option value="disk">{tr("disk.diagnosis")}</option><option value="new-files">{tr("recent.files")}</option><option value="security">{tr("security.triage")}</option><option value="custom">{tr("custom.checks")}</option></select></Field>
+    <Field title={tr("checks")}><select value={playbook} onChange={e => setPlaybook(e.target.value as typeof playbook)}><option value="inspect">{tr("health.inspection")}</option><option value="disk">{tr("disk.diagnosis")}</option><option value="space">{tr("space.usage")}</option><option value="new-files">{tr("recent.files")}</option><option value="security">{tr("security.triage")}</option><option value="custom">{tr("custom.checks")}</option></select></Field>
     <Field title={tr("inspection.rules")} hint={tr("you.can.copy.a.preset.and")}><textarea name="instruction" required rows={6} maxLength={30000} defaultValue={template?.definition.instruction ?? tr("inspect.server.health.report.abnormal.metrics")}/></Field>
     <Field title={tr("read.only.commands")} hint={tr("read.only.commands.template.hint")}><textarea name="commands" className="wo-mono" rows={3} defaultValue={template?.definition.commands?.join('\n') ?? ''} placeholder={'systemctl is-active {{service}}\njournalctl -u {{service}} -n 50 --no-pager'} spellCheck={false}/></Field>
     {!!template?.parameters.length && <p className="wo-section-note">{tr("parameters.supplied.when.linking.servers")}{template.parameters.map(p => `${p.label}（{{${p.key}}}）`).join('、')}{tr("keep.the.required.placeholders.when.editing")}</p>}
-    {['disk', 'new-files'].includes(playbook) && <Field title={tr("default.scan.paths")} hint={tr("absolute.paths.separated.by.commas.2")}><input name="paths" required defaultValue={template?.definition.paths?.join(', ') ?? (playbook === 'new-files' ? '/var/log' : '/')}/></Field>}
+    {['disk', 'space', 'new-files'].includes(playbook) && <Field title={tr("default.scan.paths")} hint={tr("absolute.paths.separated.by.commas.2")}><input name="paths" required defaultValue={template?.definition.paths?.join(', ') ?? (playbook === 'new-files' ? '/var/log' : '/')}/></Field>}
     {playbook === 'new-files' && <Field title={tr("default.look.back.days")}><input name="days" type="number" min={1} required defaultValue={template?.definition.days ?? 1}/></Field>}
     {playbook === 'security' && <Field title={tr("default.look.back.hours")}><input name="hours" type="number" min={1} required defaultValue={template?.definition.hours ?? 24}/></Field>}
     <div className="wo-form-grid"><Field title={tr("suggested.daily.run.time")}><input name="time" type="time" defaultValue={template?.definition.schedule?.daily ?? '08:30'} required/></Field><Field title={tr("time.zone")}><input name="zone" defaultValue={template?.definition.schedule?.timeZone ?? zone} required/></Field></div>

@@ -54,6 +54,8 @@ export declare class OpsManager {
     private probeHosts;
     /** The audit log the model sees through ops_history, for the panel: bounded rows, newest last, no secrets. */
     private auditLog;
+    /** The latest stored directory scan of each path on one server, for the space map; nothing runs remotely. */
+    private spaceUsage;
     private scheduleRecords;
     private update;
     private handle;

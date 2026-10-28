@@ -10,6 +10,7 @@ import type { DiskOptions, DiskReport } from './collectors/disk.ts';
 import type { Finding, HostInspection, Severity } from './collectors/inspect.ts';
 import type { FilesOptions, FilesReport } from './collectors/files.ts';
 import type { SecurityReport } from './collectors/security.ts';
+import type { SpaceOptions, SpaceReport, SpaceSnapshot } from './collectors/space.ts';
 import type { HostProbe } from './collectors/probe.ts';
 import { Inventory } from './inventory.ts';
 import type { Host } from './inventory.ts';
@@ -103,6 +104,12 @@ export declare class OpsService {
     /** Recent-file analysis on one host, compared with the previous scan of the same roots and window. */
     files(host: Host, options: FilesOptions & CollectorOptions): Promise<{
         report?: FilesReport;
+        result: RunResult;
+    }>;
+    /** Directory sizes under one path for the space map, stored with the previous scan of the same path for growth. */
+    space(host: Host, options: SpaceOptions & CollectorOptions): Promise<{
+        report?: SpaceReport;
+        previous?: SpaceSnapshot;
         result: RunResult;
     }>;
     /** Security triage on a set of hosts. */

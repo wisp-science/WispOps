@@ -50,9 +50,9 @@ export interface HostSpec {
 }
 
 /** Built-in read-only analyses a task can run. */
-export type Playbook = 'inspect' | 'disk' | 'new-files' | 'security' | 'custom' | 'script'
+export type Playbook = 'inspect' | 'disk' | 'space' | 'new-files' | 'security' | 'custom' | 'script'
 
-export const PLAYBOOKS: readonly Playbook[] = ['inspect', 'disk', 'new-files', 'security', 'custom', 'script']
+export const PLAYBOOKS: readonly Playbook[] = ['inspect', 'disk', 'space', 'new-files', 'security', 'custom', 'script']
 /**
  * Who writes the report after a run. `always` is a DSH schedule that wakes the agent every
  * time; `problems` and `never` run inside WispOps on its own timer, record and notify
@@ -101,7 +101,7 @@ export interface TaskSpec {
   /** What the report should cover, in the user's words; required for `custom`. */
   instruction?: string
   schedule?: TaskSchedule
-  /** Roots for `new-files` and `disk`. */
+  /** Roots for `new-files`, `disk` and `space`. */
   paths?: string[]
   /** Window for `new-files`, in days. */
   days?: number
@@ -317,7 +317,7 @@ export const Task: z<TaskSpec> = z.object({
   template: z.string().pattern(NAME),
   description: z.string(),
   targets: z.string().required(),
-  playbook: z.union(['inspect', 'disk', 'new-files', 'security', 'custom', 'script'] as const).required(),
+  playbook: z.union(['inspect', 'disk', 'space', 'new-files', 'security', 'custom', 'script'] as const).required(),
   instruction: z.string(),
   schedule: z.object({
     daily: z.string().pattern(HHMM),

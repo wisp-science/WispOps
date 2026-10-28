@@ -13,7 +13,7 @@ export interface DraftEvidence {
 export interface TaskDraft { task: TaskSpec; evidence: DraftEvidence[]; warnings: string[] }
 export interface HostObservation { host: Host; probe?: HostProbe; history?: HistoryRecord }
 
-const labels: Record<Playbook, string> = { inspect: '健康巡查', security: '安全巡查', disk: '磁盘巡查', 'new-files': '新增文件巡查', custom: '综合巡查', script: '脚本检查' }
+const labels: Record<Playbook, string> = { inspect: '健康巡查', security: '安全巡查', disk: '磁盘巡查', space: '目录占用巡查', 'new-files': '新增文件巡查', custom: '综合巡查', script: '脚本检查' }
 const DATA_MOUNT = /^\/(?:data|home|mnt|srv|work|scratch|share)(?:\/|$)/
 const SAFE_MOUNT = /^\/[^\x00-\x1f\x7f]*$/
 const DAY = 86_400_000
@@ -36,6 +36,7 @@ export function draftTask(observations: HostObservation[], playbook: Playbook, c
   )
   if (security) rules.push('安全检查：使用 ops_security 回溯最近 24 小时，区分失败认证、正常连接和成功登录，检查监听端口、异常进程、外连及持久化迹象。仅凭扫描或失败登录不能判定已入侵；报告证据和待确认事项。')
   if (playbook === 'disk') rules.push(`磁盘检查：定位所选文件系统的大目录、大文件、近期增长及已删除仍被占用的文件；使用率 ≥ ${t.diskWarnPct}% 告警、≥ ${t.diskCritPct}% 紧急。区分日志、缓存、原始数据和分析结果，给出清理候选及依据。`)
+  if (playbook === 'space') rules.push('目录占用检查：统计所选路径下各级目录的占用（同一文件系统内），指出占用最多的目录及其中最大的子目录、与上次相比增长明显的目录；区分日志、缓存、原始数据、分析结果和用户主目录。权限不足造成的统计缺口要说明，只给出带依据的清理建议。')
   if (playbook === 'new-files') rules.push('新增文件检查：统计指定目录最近 1 天新增或修改的文件，按目录、属主和文件类型汇总体积；区分测序原始数据、分析结果、可再生中间文件及日志。只有证据充分时才提出清理候选，无法判断用途的文件标记为需要确认。')
 
   for (const { host, probe, history } of observations) {
@@ -84,7 +85,7 @@ export function draftTask(observations: HostObservation[], playbook: Playbook, c
     '报告用中文：先给总体状态，再按严重程度列出服务器、证据、变化和建议。无异常时简短汇报；需要变更的建议另行审批。',
   )
   const commonPaths = observations.map(({ history }) => Object.keys(history?.diskPct ?? {}).filter(p => p.length <= 256 && SAFE_MOUNT.test(p) && DATA_MOUNT.test(p)))
-  const paths = playbook === 'disk' ? ['/'] : (commonPaths[0] ?? []).filter(p => commonPaths.every(list => list.includes(p))).slice(0, 3)
+  const paths = playbook === 'disk' || playbook === 'space' ? ['/'] : (commonPaths[0] ?? []).filter(p => commonPaths.every(list => list.includes(p))).slice(0, 3)
   if (playbook === 'new-files' && !paths.length) {
     paths.push('/var/log')
     warnings.push('尚未确认所有所选服务器共有的数据目录，默认只检查 /var/log；可修改扫描路径。')
@@ -93,7 +94,7 @@ export function draftTask(observations: HostObservation[], playbook: Playbook, c
     name, description: `${names.length === 1 ? names[0] : `${names.length} 台服务器`}每日${labels[playbook]}`,
     targets: names.join(','), playbook, instruction: rules.map((r, i) => `${i + 1}. ${r}`).join('\n'),
     schedule: { daily: '08:30', timeZone: config.timeZone }, sudo: false,
-    ...(['disk', 'new-files'].includes(playbook) ? { paths } : {}),
+    ...(['disk', 'space', 'new-files'].includes(playbook) ? { paths } : {}),
     ...(playbook === 'new-files' ? { days: 1 } : {}), ...(playbook === 'security' ? { hours: 24 } : {}),
   }
   return { task, evidence, warnings }

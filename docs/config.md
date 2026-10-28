@@ -65,7 +65,7 @@ tasks:
     schedule: { daily: "08:00", weekdays: [1, 2, 3, 4, 5] }
 ```
 
-- 预设 playbook：`inspect`（巡检）、`disk`（磁盘诊断）、`new-files`（新增文件分析）、`security`（攻击排查）、`custom`（按 `instruction` 汇报；配合 `commands` 时由内置采集器执行命令，否则模型用只读工具自行收集证据）。
+- 预设 playbook：`inspect`（巡检）、`disk`（磁盘诊断）、`space`（目录空间占用，按 `paths` 逐层统计目录大小，面板中以方块图查看）、`new-files`（新增文件分析）、`security`（攻击排查）、`custom`（按 `instruction` 汇报；配合 `commands` 时由内置采集器执行命令，否则模型用只读工具自行收集证据）。
 - `commands`：最多 20 条只读 shell 命令，在每台目标服务器上依次执行，输出随任务数据一起交给模型，并计入上次对比。加载时用与 `ops_exec` 相同的分类器校验，任何非只读、提权或命中 `denyPatterns` 的命令都会让清单加载失败；`sudo: true` 时命令也以 sudo 执行。退出码非 0 记为 `commandFailed`，与告警一样触发“仅异常投递”。
 
 ```yaml

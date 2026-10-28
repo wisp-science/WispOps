@@ -10,6 +10,8 @@
 import { renderDisk } from './collectors/disk.ts'
 import { renderFiles } from './collectors/files.ts'
 import { renderSecurity } from './collectors/security.ts'
+import type { FsUsage } from './collectors/sections.ts'
+import { renderSpace } from './collectors/space.ts'
 import type { Config, TaskSpec } from './config.ts'
 import type { Authorization } from './store.ts'
 import type { OpsService } from './service.ts'
@@ -95,6 +97,10 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
   const common = { sudo: options.sudo, tool: `ops_task:${task.name}`, authorization: options.authorization, ...options.signal === undefined ? {} : { signal: options.signal }, ...options.session === undefined ? {} : { session: options.session } }
   const counts: Record<string, number> = {}
   const bump = (key: string, n = 1) => { counts[key] = (counts[key] ?? 0) + n }
+  const bumpUsage = (fs: FsUsage | undefined) => {
+    if (fs !== undefined && fs.usePct >= service.config.thresholds.diskCritPct) bump('crit')
+    else if (fs !== undefined && fs.usePct >= service.config.thresholds.diskWarnPct) bump('warn')
+  }
   let body: string
   let outcomes: ScriptOutcome[] | undefined
   let scriptSha256: string | undefined
@@ -114,8 +120,22 @@ export async function runTask(service: OpsService, task: TaskSpec, options: { su
           parts.push(report === undefined ? renderRuns([result], 2000) : renderDisk(host.name, report))
           if (report === undefined) bump('unreachable')
           else if (report.walkIncomplete || !report.filesystem) bump('incomplete')
-          if (report?.filesystem !== undefined && report.filesystem.usePct >= service.config.thresholds.diskCritPct) bump('crit')
-          else if (report?.filesystem !== undefined && report.filesystem.usePct >= service.config.thresholds.diskWarnPct) bump('warn')
+          bumpUsage(report?.filesystem)
+        }
+      }
+      body = parts.join('\n\n')
+      break
+    }
+    case 'space': {
+      const parts: string[] = []
+      for (const host of hosts) {
+        for (const path of task.paths ?? ['/']) {
+          // du still walks the whole tree; depth and the kept count only bound what is returned and stored.
+          const { report, previous, result } = await service.space(host, { ...common, path, depth: 5, maxDirs: 2000, minKb: 1024, walkTimeoutSec: 300 })
+          parts.push(report === undefined ? renderRuns([result], 2000) : renderSpace(host.name, report, previous))
+          if (report === undefined) bump('unreachable')
+          else if (report.walkIncomplete || !report.filesystem) bump('incomplete')
+          bumpUsage(report?.filesystem)
         }
       }
       body = parts.join('\n\n')

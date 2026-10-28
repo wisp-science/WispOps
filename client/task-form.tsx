@@ -6,7 +6,7 @@ import { renderTemplate } from '../src/task-template-content'
 import type { TaskTemplate } from '../src/task-template-content'
 import { PanelIcon } from './panel-icon'
 
-const getPlaybooks = (): Record<string, string> => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("combined.custom.checks") })
+const getPlaybooks = (): Record<string, string> => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), space: tr("space.usage"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("combined.custom.checks") })
 const getReportModes = (): { value: ReportMode; title: string; hint: string }[] => [
   { value: 'always', title: tr("report.mode.always"), hint: tr("report.mode.always.hint") },
   { value: 'problems', title: tr("report.mode.problems"), hint: tr("report.mode.problems.hint") },
@@ -119,7 +119,7 @@ export function TaskForm({ data, task, template, script, fixedHost, api, submit,
       ...(!template && commands.length ? { commands } : {}),
       notify, notifyOnlyProblems, notifyOnChange,
       ...(notify.length && quiet.enabled ? { quietHours: { start: quiet.start, end: quiet.end, timeZone: fields.zone } } : {}),
-      ...(['disk', 'new-files'].includes(playbook) ? { paths: fields.paths.split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
+      ...(['disk', 'space', 'new-files'].includes(playbook) ? { paths: fields.paths.split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) } : {}),
       ...(playbook === 'new-files' ? { days: fields.lookbackDays } : {}), ...(playbook === 'security' ? { hours: fields.hours } : {}),
       ...(task?.template ? { template: task.template } : {}),
     }, template ? parameters : undefined)
@@ -152,7 +152,7 @@ export function TaskForm({ data, task, template, script, fixedHost, api, submit,
       </div>
       <Field title={template || linkedScript ? tr("additional.requirements.optional") : tr("report.requirements")} hint={linkedScript ? tr("script.requirements.hint") : tr("add.metrics.to.focus.on.and")}><textarea value={fields.instruction} onChange={e => set('instruction', e.target.value)} required={!template && playbook === 'custom'} rows={draft ? 8 : 3} placeholder={template || linkedScript ? tr("for.example.describe.only.abnormal.findings") : tr("use.generate.inspection.rules.above.to")}/></Field>
       {linkedScript ? <details className="wo-template-preview"><summary>{tr("script.view.content")}</summary><pre className="wo-command-list">{linkedScript.content}</pre></details> : template ? !!template.definition.commands?.length && <details className="wo-template-preview"><summary>{tr("commands.count", { p0: template.definition.commands.length })}</summary><pre className="wo-command-list">{template.definition.commands.join('\n')}</pre></details> : <Field title={tr("read.only.commands")} hint={tr("read.only.commands.hint")}><textarea className="wo-mono" value={fields.commands} onChange={e => set('commands', e.target.value)} rows={3} placeholder={'systemctl is-active nginx\ndf -h /data'} spellCheck={false}/></Field>}
-      {['disk', 'new-files'].includes(playbook) && <Field title={tr("scan.paths")} hint={tr("absolute.paths.separated.by.commas")}><input value={fields.paths} onChange={e => set('paths', e.target.value)} required/></Field>}
+      {['disk', 'space', 'new-files'].includes(playbook) && <Field title={tr("scan.paths")} hint={tr("absolute.paths.separated.by.commas")}><input value={fields.paths} onChange={e => set('paths', e.target.value)} required/></Field>}
       {playbook === 'new-files' && <Field title={tr("look.back.days")}><input type="number" min="1" value={fields.lookbackDays} onChange={e => set('lookbackDays', Number(e.target.value))} required/></Field>}
       {playbook === 'security' && <Field title={tr("look.back.hours")}><input type="number" min="1" value={fields.hours} onChange={e => set('hours', Number(e.target.value))} required/></Field>}
       {(() => {
