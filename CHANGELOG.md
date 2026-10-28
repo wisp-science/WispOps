@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.11.0 — 2026-10-27
+
 - Check scripts: a panel library of owner-reviewed POSIX sh scripts that `playbook: script` tasks run on linked servers with `sh -s`, judged by a small output contract (exit 0/1/2, first stdout line as the summary, optional `WISPOPS-JSON` metrics). Scripts are tested on a server before saving, deny-list checked at save and run time, recorded with their sha256, and proposed by the agent only as drafts through `ops_script_draft`.
 - Report modes: a task's `report` chooses who writes the report. `always` keeps the DSH schedule; `problems` and `never` run on a WispOps timer inside the plugin, so a green run records and notifies without any model tokens. `problems` queues a short prompt into the chosen session only when a run found warnings, failures or unreachable servers, and the agent reads the stored evidence with `ops_task mode=last` instead of collecting it again; a closed session keeps the escalation pending. Task cards show the latest verdict and summary, timer issues, and the next timer run.
 - Split the task dialog into two steps with a progress header: task details (template, name, requirements, schedule, sudo and notifications) and linking servers, where the server list gets the full dialog width with a summary of the task being linked. A fresh custom task picks servers first because rule generation needs them; Back and Next move between steps and the final step saves.

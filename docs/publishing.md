@@ -6,9 +6,9 @@
 
 ## 当前发布状态
 
-[0.10.1 的 npm 页面](https://www.npmjs.com/package/dsh-wisp-ops/v/0.10.1)。稳定版发布到 `latest`，使用同版本 GitHub Release 的归档。该包已完成首次发布，无需再次执行首次发布流程；注册表中的实际版本可用下面的命令确认。
+[0.11.0 的 npm 页面](https://www.npmjs.com/package/dsh-wisp-ops/v/0.11.0)。稳定版发布到 `latest`，使用同版本 GitHub Release 的归档。该包已完成首次发布，无需再次执行首次发布流程；注册表中的实际版本可用下面的命令确认。
 
-当前仓库的 `.github/workflows/release.yml` 在推送 `v*` 标签后检查类型、测试和构建产物，再创建 GitHub Release；**npm 自动发布尚未启用**。后续需提交 npm 发布任务并在 npm 绑定可信发布者，才能通过标签自动发布到两个平台。
+当前仓库的 `.github/workflows/release.yml` 已包含 GitHub Release 和 npm 发布任务。推送 `v*` 标签后，先检查类型、测试、版本号及构建产物，再将同一份归档上传到两个平台。npm 任务使用 OIDC 可信发布并附带 provenance；运行前需在 npm 账号侧绑定下方列出的仓库和工作流。稳定版使用 `latest`，预发布版使用 `next`。
 
 检查线上版本：
 
@@ -16,19 +16,19 @@
 npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 ```
 
-## 后续手动发版
+## 发版步骤
 
-需要有权发布该包的 npm 账号，并完成 npm 要求的交互登录和双重验证。使用支持当前登录流程的 npm CLI；在交互终端中发布，按提示在浏览器使用安全密钥验证。
+正常流程由 GitHub Actions 自动发布。只有 npm 自动发布失败，且确认该版本尚未在注册表中出现时，才使用手动上传兜底；需要有权发布该包的 npm 账号，并完成 npm 要求的交互登录和双重验证。不要在自动发布仍运行时重复上传。
 
-下面以 `0.10.2` 为例；如果该版本已存在，改用下一个未发布版本：
+下面以 `0.11.1` 为例；如果该版本已存在，改用下一个未发布版本：
 
 1. 更新 `package.json` 和 `package-lock.json`：
 
    ```bash
-   npm version 0.10.2 --no-git-tag-version
+   npm version 0.11.1 --no-git-tag-version
    ```
 
-2. 将 `CHANGELOG.md` 的 Unreleased 内容移到 `## 0.10.2 — YYYY-MM-DD`，填写实际发版日期，保留空的 Unreleased 节。
+2. 将 `CHANGELOG.md` 的 Unreleased 内容移到 `## 0.11.1 — YYYY-MM-DD`，填写实际发版日期，保留空的 Unreleased 节。
 3. 安装依赖并完成检查：
 
    ```bash
@@ -43,20 +43,22 @@ npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 5. 创建标签并推送提交和该标签：
 
    ```bash
-   git tag v0.10.2
+   git tag v0.11.1
    git push origin main
-   git push origin v0.10.2
+   git push origin v0.11.1
    ```
 
-6. 在 GitHub Actions 的 **Release** 中确认任务成功，再下载该次 Release 的归档并发布同一份包：
+6. 在 GitHub Actions 的 **Release** 中确认 `release` 和 `publish-npm` 两个任务均成功，再按下方命令核对注册表。成功时无需在本地执行 `npm publish`。
+
+   仅当 `release` 成功、`publish-npm` 失败且注册表中没有该版本时，才下载该次 Release 的归档，手动发布同一份包：
 
    ```bash
    mkdir -p artifacts/packages
-   gh release download v0.10.2 --repo wisp-science/WispOps \
-     --pattern dsh-wisp-ops-0.10.2.tgz --dir artifacts/packages --clobber
+   gh release download v0.11.1 --repo wisp-science/WispOps \
+     --pattern dsh-wisp-ops-0.11.1.tgz --dir artifacts/packages --clobber
    npm login --registry=https://registry.npmjs.org
    npm whoami --registry=https://registry.npmjs.org
-   npm publish ./artifacts/packages/dsh-wisp-ops-0.10.2.tgz \
+   npm publish ./artifacts/packages/dsh-wisp-ops-0.11.1.tgz \
      --ignore-scripts --access public --tag latest --registry=https://registry.npmjs.org
    ```
 
@@ -69,7 +71,7 @@ npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 以注册表中的实际版本为准：
 
 ```bash
-npm view dsh-wisp-ops@0.10.1 version dist-tags dist.integrity --json \
+npm view dsh-wisp-ops@0.11.0 version dist-tags dist.integrity --json \
   --prefer-online --registry=https://registry.npmjs.org
 ```
 
@@ -79,7 +81,7 @@ npm view dsh-wisp-ops@0.10.1 version dist-tags dist.integrity --json \
 
 ## 启用 GitHub 可信发布
 
-先在 `.github/workflows/release.yml` 加入 npm 发布任务并提交到 GitHub：在检查和构建成功后，发布与 GitHub Release 相同的归档；npm 任务使用 GitHub 托管 runner、支持 OIDC 的 npm CLI，以及 `contents: read` 和 `id-token: write` 权限。稳定版与预发布版分别传入 `--tag latest` 和 `--tag next`。
+仓库中的 `.github/workflows/release.yml` 已配置 npm 发布任务：在检查和构建成功后，下载并发布与 GitHub Release 相同的归档；npm 任务使用 GitHub 托管 runner、支持 OIDC 的 npm CLI，以及 `contents: read` 和 `id-token: write` 权限。稳定版与预发布版分别传入 `--tag latest` 和 `--tag next`。
 
 再由 npm 包维护者在 **Settings → Trusted publishing** 中选择 **GitHub Actions**，绑定以下内容：
 
