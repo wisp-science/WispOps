@@ -123,8 +123,9 @@
 .wo-fleet-count{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .wo-fleet-count strong{color:var(--wo-text);font-weight:600;font-variant-numeric:tabular-nums}
 .wo-dot.ok{background:var(--wo-ok)}.wo-dot.warn{background:var(--wo-warn)}.wo-dot.crit{background:var(--wo-crit)}.wo-dot.unreachable{background:var(--wo-unreachable)}.wo-dot.never{background:var(--wo-never)}
+.wo-fleet-actions{display:flex;flex-wrap:wrap;gap:6px}
 .wo-range{display:flex;gap:6px}
-.wo-range button{font-size:12px;padding:5px 10px}
+.wo-range button,.wo-fleet-actions>button{font-size:12px;padding:5px 10px}
 .wo-range button.active{background:var(--wo-tint);border-color:var(--wo-accent);color:var(--wo-accent);font-weight:600}
 .wo-fleet .wo-section-note{margin:0;padding:0}
 .wo-matrix{border:1px solid var(--wo-line);border-radius:9px;overflow:hidden}

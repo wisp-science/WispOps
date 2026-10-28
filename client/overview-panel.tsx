@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { tr } from './i18n'
 import type { Api, Host, Overview, OverviewHost, OverviewRow, OverviewState } from './contracts'
 
 const RANGES = [10, 30, 90]
+/** "Inspect all" connects to at most this many servers at once; the rest wait their turn. */
+const PARALLEL = 4
 const date = (value: string) => new Date(value).toLocaleString()
 const stateLabel = (state: OverviewState | 'never') => ({ ok: tr('fleet.summary.ok'), warn: tr('fleet.summary.warn'), crit: tr('fleet.summary.crit'), unreachable: tr('fleet.summary.unreachable'), never: tr('fleet.summary.never') })[state]
 const worstDisk = (row: OverviewRow) => Object.entries(row.diskPct).sort((a, b) => b[1] - a[1])[0]
 
+interface InspectResult { status: string; severity: string; findings: number; error: string }
 interface Series { key: string; label: string; values: { at: string; value: number }[]; kind: 'used' | 'available' }
 
 /** Up to three busiest mounts, memory and CPU, each as a 0–100 % series over the stored inspections. */
@@ -45,24 +48,57 @@ function Sparkline({ series }: { series: Series }) {
 export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: Host[]; onSelectHost: (name: string) => void }) {
   const [limit, setLimit] = useState(30)
   const [data, setData] = useState<Overview>()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<{ host: string; index?: number }>()
   const [generation, setGeneration] = useState(0)
-  const [inspecting, setInspecting] = useState<string>()
+  // Hosts queued or running; the ref answers synchronously so one server is never inspected twice at once.
+  const [jobs, setJobs] = useState<Record<string, 'queued' | 'running'>>({})
+  const claimed = useRef(new Set<string>())
+  const [batch, setBatch] = useState<{ done: number; total: number }>()
   const [notice, setNotice] = useState<{ tone: 'good' | 'bad'; text: string }>()
   const severityLabel = (severity: string) => ({ ok: tr('fleet.summary.ok'), info: tr('fleet.summary.ok'), warn: tr('fleet.summary.warn'), crit: tr('fleet.summary.crit'), unreachable: tr('fleet.summary.unreachable') } as Record<string, string>)[severity] ?? severity
+  const mark = (names: string[], state?: 'queued' | 'running') => setJobs(prev => {
+    const next = { ...prev }
+    for (const name of names) { if (state) next[name] = state; else delete next[name] }
+    return next
+  })
+  /** One inspection of a claimed host; the matrix reloads as soon as it is saved, whatever else is still running. */
+  async function inspect(name: string): Promise<InspectResult> {
+    mark([name], 'running')
+    try { return await api({ action: 'inspectNow', host: name }) as InspectResult }
+    finally { claimed.current.delete(name); mark([name]); setGeneration(g => g + 1) }
+  }
   async function inspectNow(name: string) {
-    if (inspecting) return
-    setInspecting(name); setNotice(undefined)
+    if (claimed.current.has(name)) return
+    claimed.current.add(name); setNotice(undefined)
     try {
-      const result = await api({ action: 'inspectNow', host: name }) as { status: string; severity: string; findings: number; error: string }
+      const result = await inspect(name)
       const ok = result.status === 'ok'
       setNotice({ tone: ok ? 'good' : 'bad', text: ok ? tr('fleet.inspected', { p0: name, p1: result.findings ? `${severityLabel(result.severity)} · ${tr('fleet.findings.count', { p0: result.findings })}` : severityLabel(result.severity) }) : tr('fleet.inspect.failed', { p0: name, p1: result.error || severityLabel(result.severity) }) })
       setPicked({ host: name })
-      setGeneration(g => g + 1)
     } catch (e) { setNotice({ tone: 'bad', text: tr('fleet.inspect.failed', { p0: name, p1: e instanceof Error ? e.message : String(e) }) }) }
-    finally { setInspecting(undefined) }
+  }
+  async function inspectAll() {
+    const names = hosts.map(h => h.name).filter(name => !claimed.current.has(name))
+    if (!names.length) return
+    for (const name of names) claimed.current.add(name)
+    mark(names, 'queued'); setNotice(undefined); setBatch({ done: 0, total: names.length })
+    const tally = { ok: 0, warn: 0, crit: 0, unreachable: 0, error: 0 }
+    let next = 0
+    const worker = async () => {
+      while (next < names.length) {
+        const name = names[next++]!
+        try {
+          const { severity } = await inspect(name)
+          tally[(severity === 'info' ? 'ok' : severity) as keyof typeof tally]++
+        } catch { tally.error++ }
+        setBatch(b => b && { ...b, done: b.done + 1 })
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, names.length) }, worker))
+    setBatch(undefined)
+    const parts = (['ok', 'warn', 'crit', 'unreachable', 'error'] as const).filter(key => tally[key]).map(key => `${key === 'error' ? tr('fleet.inspect.error') : stateLabel(key)} ${tally[key]}`)
+    setNotice({ tone: tally.unreachable || tally.error ? 'bad' : 'good', text: tr('fleet.inspected.all', { p0: names.length, p1: parts.join(' · ') }) })
   }
   const info = (name: string) => {
     const host = hosts.find(h => h.name === name)
@@ -71,10 +107,9 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
   }
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    void api({ action: 'overview', limit }).then(result => { if (alive) { setData(result as Overview); setError('') } }, () => { if (alive) setError(tr('fleet.error')) }).finally(() => { if (alive) setLoading(false) })
+    void api({ action: 'overview', limit }).then(result => { if (alive) { setData(result as Overview); setError('') } }, () => { if (alive) setError(tr('fleet.error')) })
     return () => { alive = false }
-  }, [api, limit, generation])
+  }, [api, limit, generation, hosts])
   const columns = Math.max(1, ...(data?.hosts.map(h => h.rows.length) ?? [1]))
   const selected = useMemo(() => {
     if (!data) return undefined
@@ -88,7 +123,7 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
   return <section className="wo-fleet" aria-label={tr('fleet.overview')}>
     <div className="wo-fleet-controls">
       <div className="wo-fleet-summary" role="status">{(['ok', 'warn', 'crit', 'unreachable', 'never'] as const).map(state => <span key={state} className={`wo-fleet-count ${state}`}><i className={`wo-dot ${state}`} aria-hidden="true"/>{stateLabel(state)}<strong>{data?.summary[state] ?? '—'}</strong></span>)}</div>
-      <div className="wo-range" role="group" aria-label={tr('fleet.range', { p0: limit })}>{RANGES.map(n => <button key={n} type="button" className={n === limit ? 'active' : ''} disabled={loading} onClick={() => setLimit(n)}>{n}</button>)}<button type="button" disabled={loading} onClick={() => setGeneration(g => g + 1)}>{loading ? tr('loading') : tr('refresh')}</button></div>
+      <div className="wo-fleet-actions"><div className="wo-range" role="group" aria-label={tr('fleet.range', { p0: limit })}>{RANGES.map(n => <button key={n} type="button" className={n === limit ? 'active' : ''} onClick={() => setLimit(n)}>{n}</button>)}</div><button type="button" disabled={!hosts.length || !!batch} onClick={() => void inspectAll()}>{batch ? tr('fleet.inspecting.all', { p0: batch.done, p1: batch.total }) : tr('fleet.inspect.all')}</button></div>
     </div>
     {error && <p role="alert" className="wo-alert">{error}</p>}
     {!data && !error && <div className="wo-empty">{tr('fleet.loading')}</div>}
@@ -102,13 +137,15 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
           const latest = host.rows.at(-1)
           const disk = latest && latest.state !== 'unreachable' ? worstDisk(latest) : undefined
           const current = selected?.host.name === host.name
+          const job = jobs[host.name]
+          const jobLabel = job === 'running' ? tr('fleet.inspecting') : job === 'queued' ? tr('fleet.queued') : tr('fleet.inspect.now')
           return <div role="row" className={`wo-matrix-row${current ? ' current' : ''}`} key={host.name} onClick={e => { if (!(e.target instanceof Element && e.target.closest('button'))) setPicked({ host: host.name }) }}>
             <div role="rowheader" className="wo-matrix-host"><button type="button" className="wo-text-button wo-matrix-name" onClick={() => setPicked({ host: host.name })} aria-pressed={current}><i className={`wo-dot ${host.latest}`} aria-hidden="true"/>{host.name}</button>{host.groups.length > 0 && <small>{host.groups.join(', ')}</small>}</div>
             <div role="cell" className="wo-matrix-mid"><span className="wo-matrix-info" title={info(host.name)}>{info(host.name)}</span><div className="wo-cells" style={{ ['--wo-columns' as string]: columns }}>
               {Array.from({ length: columns - host.rows.length }, (_, i) => <span key={`pad-${i}`} className="wo-cell never" aria-hidden="true"/>)}
               {host.rows.map((row, index) => <button type="button" key={row.at} className={`wo-cell ${row.state}${current && selected?.index === index ? ' picked' : ''}`} title={`${date(row.at)} · ${stateLabel(row.state)}${row.findings.length ? ` · ${row.findings.map(f => f.code).join(', ')}` : ''}`} aria-label={`${host.name} ${date(row.at)} ${stateLabel(row.state)}`} onClick={() => setPicked({ host: host.name, index })}/>)}
             </div></div>
-            <div role="cell" className="wo-matrix-latest">{latest ? latest.state === 'unreachable' ? <span className="wo-muted">{tr('fleet.summary.unreachable')}</span> : <>{disk && <span>{tr('fleet.short.disk')} <strong>{disk[1]}%</strong></span>}{latest.memAvailPct !== undefined && <span>{tr('fleet.short.mem')} <strong>{latest.memAvailPct.toFixed(0)}%</strong></span>}</> : <button type="button" className="wo-text-button wo-inspect-now" disabled={!!inspecting} onClick={() => void inspectNow(host.name)}>{inspecting === host.name ? tr('fleet.inspecting') : tr('fleet.inspect.now')}</button>}{latest && <button type="button" className="wo-chip" disabled={!!inspecting} title={tr('fleet.inspect.now')} aria-label={tr('fleet.inspect.host', { p0: host.name })} onClick={() => void inspectNow(host.name)}>{inspecting === host.name ? '…' : '⟳'}</button>}<button type="button" className="wo-chip" onClick={() => onSelectHost(host.name)} aria-label={tr('fleet.open.server')}>↗</button></div>
+            <div role="cell" className="wo-matrix-latest">{latest ? latest.state === 'unreachable' ? <span className="wo-muted">{tr('fleet.summary.unreachable')}</span> : <>{disk && <span>{tr('fleet.short.disk')} <strong>{disk[1]}%</strong></span>}{latest.memAvailPct !== undefined && <span>{tr('fleet.short.mem')} <strong>{latest.memAvailPct.toFixed(0)}%</strong></span>}</> : <button type="button" className="wo-text-button wo-inspect-now" disabled={!!job} onClick={() => void inspectNow(host.name)}>{jobLabel}</button>}{latest && <button type="button" className="wo-chip" disabled={!!job} title={jobLabel} aria-label={job ? `${host.name} ${jobLabel}` : tr('fleet.inspect.host', { p0: host.name })} onClick={() => void inspectNow(host.name)}>{job ? '…' : '⟳'}</button>}<button type="button" className="wo-chip" onClick={() => onSelectHost(host.name)} aria-label={tr('fleet.open.server')}>↗</button></div>
           </div>
         })}
       </div>

@@ -464,6 +464,30 @@ describe('panel inspection', () => {
     expect(inspect).toHaveBeenCalledTimes(1)
     inspect.mockRestore()
   })
+  it('inspects servers in parallel outside the write queue and joins a repeated request for one server', async () => {
+    const gates = new Map<string, () => void>()
+    const inspect = vi.spyOn(service, 'inspect').mockImplementation(async hosts => {
+      const name = hosts[0]!.name
+      await new Promise<void>(resolve => gates.set(name, resolve))
+      return { at: '2026-10-27T08:00:00Z', counts: { ok: 1, info: 0, warn: 0, crit: 0, unreachable: 0 }, hosts: [{ host: name, status: 'ok', severity: 'ok', findings: [], durationMs: 5 }] }
+    })
+    const a = manager.dispatch({ action: 'inspectNow', host: 'a' })
+    const again = manager.dispatch({ action: 'inspectNow', host: 'a' })
+    const b = manager.dispatch({ action: 'inspectNow', host: 'b' })
+    // Pending inspections hold up neither each other nor the panel's other requests.
+    expect((await snap()).hosts).toHaveLength(2)
+    await vi.waitFor(() => expect(gates.size).toBe(2))
+    expect(inspect).toHaveBeenCalledTimes(2)
+    gates.get('b')!(); gates.get('a')!()
+    expect(await b).toMatchObject({ status: 'ok', severity: 'ok' })
+    expect(await again).toEqual(await a)
+    // A finished run is not reused: the next request inspects again.
+    const next = manager.dispatch({ action: 'inspectNow', host: 'a' })
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(3))
+    gates.get('a')!()
+    await next
+    inspect.mockRestore()
+  })
 })
 describe('real DSH Gateway', () => {
   it('dispatches an owner request over the native protocol and refuses non-owner callers', async () => {

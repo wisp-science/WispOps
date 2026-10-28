@@ -55,6 +55,8 @@ export class OpsManager {
   private readonly scripts
   private readonly scriptDrafts
   private pending: Promise<unknown> = Promise.resolve()
+  /** Panel inspections in flight by host, so repeated clicks share one run and one history append. */
+  private readonly inspections = new Map<string, Promise<unknown>>()
   private readonly sync
   constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates, private readonly agents?: AgentLookup, private readonly runner?: TaskRunner) {
     this.state = managedStore(service.config.dataDir)
@@ -64,10 +66,10 @@ export class OpsManager {
     this.scriptDrafts = scriptDraftStore(service.config.dataDir)
     this.sync = new OpsSync(service, vault, async () => (await this.scheduleRecords()).some(r => r.title.startsWith(SCHEDULE_TITLE_PREFIX) && r.status === 'active'))
   }
-  /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups bypass the queue. */
+  /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups and inspections bypass the queue. */
   dispatch(value: unknown): Promise<unknown> {
     const request = object(value)
-    if (request.action === 'probeHosts' || request.action === 'auditLog') return this.handle(request)
+    if (request.action === 'probeHosts' || request.action === 'auditLog' || request.action === 'inspectNow') return this.handle(request)
     const next = this.pending.then(() => this.handle(request))
     this.pending = next.catch(() => {})
     return next
@@ -325,10 +327,17 @@ export class OpsManager {
       const name = string(request, 'host')
       const host = this.service.inventory.hosts.get(name)
       if (!host) throw new Error('服务器不存在。')
-      const result = await this.service.inspect([host], { sudo: false, authorization: 'read-only', tool: 'wispOps:panelInspect' })
-      const entry = result.hosts[0]
-      if (!entry) throw new Error('巡检未返回结果。')
-      return { at: result.at, status: entry.status, severity: entry.severity, findings: entry.findings.length, error: entry.error ?? '', durationMs: entry.durationMs }
+      // Other servers inspect in parallel; a second request for this one joins the run already in flight.
+      const running = this.inspections.get(name)
+      if (running) return running
+      const run = (async () => {
+        const result = await this.service.inspect([host], { sudo: false, authorization: 'read-only', tool: 'wispOps:panelInspect' })
+        const entry = result.hosts[0]
+        if (!entry) throw new Error('巡检未返回结果。')
+        return { at: result.at, status: entry.status, severity: entry.severity, findings: entry.findings.length, error: entry.error ?? '', durationMs: entry.durationMs }
+      })().finally(() => this.inspections.delete(name))
+      this.inspections.set(name, run)
+      return run
     }
     if (action === 'setPolicy') {
       // Owner-only: the panel's override wins over the host's YAML, group and default policy for the listed capabilities.

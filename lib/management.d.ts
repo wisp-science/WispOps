@@ -44,9 +44,11 @@ export declare class OpsManager {
     private readonly scripts;
     private readonly scriptDrafts;
     private pending;
+    /** Panel inspections in flight by host, so repeated clicks share one run and one history append. */
+    private readonly inspections;
     private readonly sync;
     constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined, runner?: TaskRunner | undefined);
-    /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups bypass the queue. */
+    /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups and inspections bypass the queue. */
     dispatch(value: unknown): Promise<unknown>;
     /** Owner-initiated capability probe of a few servers, read-only and without sudo; results join the saved probes. */
     private probeHosts;

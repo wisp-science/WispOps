@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fleet overview: the button beside the 10/30/90 range is now **Inspect all**, which inspects every server read-only (four at a time) and shows progress such as "Inspecting 2/4…" and a per-state summary at the end; it previously only reread saved history, so nothing visibly happened. Each finished server updates the matrix immediately.
+- "Inspect now" no longer blocks the rest of the panel: inspections bypass the management write queue, run in parallel across servers, and only disable the button of the server being inspected or queued. Repeated requests for one server join the run in flight. The page's Refresh button now also reloads the fleet matrix.
+
 ## 0.11.0 — 2026-10-27
 
 - Check scripts: a panel library of owner-reviewed POSIX sh scripts that `playbook: script` tasks run on linked servers with `sh -s`, judged by a small output contract (exit 0/1/2, first stdout line as the summary, optional `WISPOPS-JSON` metrics). Scripts are tested on a server before saving, deny-list checked at save and run time, recorded with their sha256, and proposed by the agent only as drafts through `ops_script_draft`.
