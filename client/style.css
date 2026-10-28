@@ -350,3 +350,30 @@
 .wo-tabs button.active:after{display:none}
 .wo-tabs button span{margin-left:5px;padding:0 5px}
 .wo-tabs button.active span{background:var(--wo-bg)}}
+.wo-steps{display:flex;align-items:center;gap:8px;list-style:none;margin:0 0 20px;padding:0}
+.wo-steps li{display:flex;align-items:center;gap:8px;min-width:0}
+.wo-steps li:not(:last-child)::after{content:'';display:block;width:28px;height:1px;background:var(--wo-line)}
+.wo-dialog .wo-steps button{display:flex;align-items:center;gap:8px;border:0;padding:4px 6px 4px 4px;border-radius:999px;background:transparent;color:var(--wo-muted);font-size:12px;font-weight:600;white-space:nowrap}
+.wo-dialog .wo-steps button:disabled{opacity:1;cursor:default}
+.wo-dialog .wo-steps li.is-done button{cursor:pointer}
+.wo-dialog .wo-steps li.is-done button:hover{background:var(--wo-panel)}
+.wo-dialog .wo-steps li.is-current button{color:var(--wo-text)}
+.wo-step-index{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--wo-line);background:var(--wo-bg);font-size:11px;font-weight:600;line-height:1;flex-shrink:0}
+.wo-steps li.is-current .wo-step-index{background:var(--wo-accent);border-color:var(--wo-accent);color:#fff}
+.wo-steps li.is-done .wo-step-index{background:var(--wo-tint);border-color:var(--wo-tint);color:var(--wo-accent)}
+.wo-step-servers .wo-section-note{padding-bottom:12px}
+.wo-dialog .wo-task-summary{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:0 0 14px;padding:10px 14px;border-radius:8px;background:var(--wo-panel);font-size:12px}
+.wo-task-summary>span{color:var(--wo-muted)}
+.wo-task-summary strong{font-weight:600;overflow-wrap:anywhere}
+.wo-task-summary code{font:11px/1.6 ui-monospace,SFMono-Regular,monospace;color:var(--wo-muted);background:var(--wo-bg);border:1px solid var(--wo-line);border-radius:5px;padding:0 6px;overflow-wrap:anywhere}
+.wo-step-servers .wo-server-picks{margin:0;padding:6px 8px 8px;max-height:min(360px,48vh)}
+.wo-step-servers .wo-server-picks legend{margin-left:6px}
+.wo-step-servers .wo-check{margin:0;padding:9px 8px;border-radius:7px;font-size:13px}
+.wo-step-servers .wo-check:hover{background:var(--wo-panel)}
+.wo-step-servers .wo-check:has(input:checked){background:var(--wo-tint)}
+.wo-step-servers .wo-check small{font-size:11px}
+.wo-step-servers .wo-server-picks>p{margin:8px;color:var(--wo-muted);font-size:12px}
+.wo-step-progress{color:var(--wo-muted);font-size:11px}
+.wo-step-actions{display:flex;gap:10px;flex-shrink:0}
+.wo-step-actions button{min-height:38px}
+@media(max-width:480px){.wo-steps li:not(:last-child)::after{width:14px}.wo-step-actions{width:100%}.wo-step-actions button{flex:1}}

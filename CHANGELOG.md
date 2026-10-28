@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Split the task dialog into two steps with a progress header: task details (template, name, requirements, schedule, sudo and notifications) and linking servers, where the server list gets the full dialog width with a summary of the task being linked. A fresh custom task picks servers first because rule generation needs them; Back and Next move between steps and the final step saves.
 - Separate npm and GitHub installation instructions in both READMEs and the installation guide; recommend npm, show latest and pinned-version commands, and clarify upgrades and Windows source migration.
 - Configure public npm publishing to the official registry, with local pre-publish checks and a tag-triggered GitHub Actions trusted publisher. Publish the same verified archive as the GitHub Release, attach provenance, and send prereleases to `next` instead of `latest`; document first publication and npm account setup.
 - Fit the management panel to narrow panes such as the session sidebar: tabs become wrapped pills, toolbar buttons fill their row, and the server list and server details show one at a time with a sticky back link instead of a clipped scrolling list. The server details heading is now translated.

@@ -59,6 +59,12 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const disabled = busy || generating
+  // The template and edit flows describe the task first and link servers last; a fresh custom task needs its servers before rules can be generated.
+  const steps: ('info' | 'servers')[] = fixedHost ? ['info'] : template || task ? ['info', 'servers'] : ['servers', 'info']
+  const [stepIndex, setStepIndex] = useState(0)
+  const step = steps[stepIndex]
+  const lastStep = stepIndex === steps.length - 1
+  const daysMissing = frequency === 'weekly' && !days.length
   const set = <K extends keyof typeof fields>(key: K, value: typeof fields[K]) => setFields(previous => ({ ...previous, [key]: value }))
   function invalidateDraft() {
     if (draft) {
@@ -92,6 +98,7 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
   function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (disabled) return
+    if (!lastStep) { setStepIndex(stepIndex + 1); return }
     const schedule = frequency === 'manual' ? undefined : { timeZone: fields.zone, ...(frequency === 'interval' ? { everyMinutes: fields.interval } : frequency === 'cron' ? { cron: fields.cron } : { daily: fields.time, ...(frequency === 'weekly' ? { weekdays: days } : {}) }) }
     const commands = fields.commands.split('\n').map(s => s.trim()).filter(Boolean)
     void submit({
@@ -105,12 +112,19 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
       ...(task?.template ? { template: task.template } : {}),
     }, template ? parameters : undefined)
   }
+  const stepTitles = { info: tr("task.step.info"), servers: tr("task.step.servers") }
   return <form onSubmit={save}>
     <fieldset className="wo-form-body" disabled={disabled}>
-      {!fixedHost && <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}</legend>
-        {data.hosts.map(h => <label className="wo-check" key={h.name}><input type="checkbox" checked={selected.includes(h.name)} onChange={e => changeSelection(e.target.checked ? [...selected, h.name] : selected.filter(n => n !== h.name))}/>{h.name}<small>{h.ssh}</small></label>)}
-        {!data.hosts.length && <p>{tr("add.a.server.first")}</p>}
-      </fieldset>}
+      {steps.length > 1 && <ol className="wo-steps" aria-label={tr("task.steps")}>{steps.map((s, i) => <li key={s} className={i === stepIndex ? 'is-current' : i < stepIndex ? 'is-done' : ''} aria-current={i === stepIndex ? 'step' : undefined}><button type="button" disabled={i > stepIndex} onClick={() => setStepIndex(i)}><span className="wo-step-index" aria-hidden="true">{i < stepIndex ? '\u2713' : i + 1}</span><span>{stepTitles[s]}</span></button></li>)}</ol>}
+      {step === 'servers' && <div className="wo-step-servers">
+        <p className="wo-section-note">{lastStep ? tr("task.step.servers.hint") : tr("task.step.servers.first.hint")}</p>
+        {lastStep && <p className="wo-task-summary"><span>{tr("task.step.summary")}</span><strong>{fields.description || fields.name}</strong><code>{fields.name}</code></p>}
+        <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}</legend>
+          {data.hosts.map(h => <label className="wo-check" key={h.name}><input type="checkbox" checked={selected.includes(h.name)} onChange={e => changeSelection(e.target.checked ? [...selected, h.name] : selected.filter(n => n !== h.name))}/>{h.name}<small>{h.ssh}</small></label>)}
+          {!data.hosts.length && <p>{tr("add.a.server.first")}</p>}
+        </fieldset>
+      </div>}
+      {step === 'info' && <>
       {template ? <><div className="wo-template-context"><strong>{template.title}</strong><p>{template.description}</p><small>{tr("rules.are.ready.specify.the.check")}</small></div>{template.parameters.map(p => <Field key={p.key} title={p.label} hint={p.hint}><textarea value={parameters[p.key] ?? ''} onChange={e => setParameters(previous => ({ ...previous, [p.key]: e.target.value }))} required={p.required} maxLength={4000} rows={2}/></Field>)}<details className="wo-template-preview"><summary>{tr("view.preset.inspection.rules")}</summary><p>{renderTemplate(template, parameters, false)}</p></details></> : <><Field title={tr("checks")}><select value={playbook} onChange={e => { setPlaybook(e.target.value); invalidateDraft(); if (e.target.value === 'new-files' && fields.paths === '/') set('paths', '/var/log') }}>{Object.entries(getPlaybooks()).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
       <div className="wo-generator">
         <strong>{tr("generate.inspection.rules")}</strong>
@@ -119,7 +133,6 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
         <small>{refreshProbe ? tr("probing.os.gpu.schedulers.and.containers") : tr("use.saved.probes.and.inspection.records")}</small>
         <button type="button" className="wo-primary" disabled={!selected.length} onClick={() => void generate()}>{generating ? tr("generating") : tr("generate.inspection.rules.2")}</button>
       </div></>}
-      {error && <p role="alert" className="wo-alert">{error}</p>}
       {draft && <div className="wo-draft-evidence" role="status"><strong>{tr("draft.generated.not.saved")}</strong>{draft.evidence.map(item => <p key={item.host}><b>{item.host}</b>：{item.summary}<small>{item.probeAt && tr("probe", { p0: new Date(item.probeAt).toLocaleString() })}{item.inspectionAt && tr("inspection", { p0: new Date(item.inspectionAt).toLocaleString() })}</small></p>)}{draft.warnings.map(w => <p className="wo-draft-warning" key={w}>{w}</p>)}</div>}
       <div className="wo-form-grid">
         <Field title={tr("task.name")} hint={tr("generate.or.enter.a.unique.identifier")}><input value={fields.name} onChange={e => { nameTouched.current = true; set('name', e.target.value) }} readOnly={!!task} required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={100}/></Field>
@@ -149,9 +162,14 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
           </> : <p className="wo-task-notifications-empty">{tr("add.notification.channels.in.the.plugin")}</p>}
         </section>
       </div>
+      </>}
+      {error && <p role="alert" className="wo-alert">{error}</p>}
       <div className="wo-task-submit">
-        <p className="wo-task-save-note"><PanelIcon kind="info"/><span>{tr("after.saving.choose.a.report.session")}</span></p>
-        <button className="wo-primary" disabled={!selected.length || (frequency === 'weekly' && !days.length)}>{busy ? tr("saving") : tr("save.task")}</button>
+        {lastStep ? <p className="wo-task-save-note"><PanelIcon kind="info"/><span>{tr("after.saving.choose.a.report.session")}</span></p> : <span className="wo-step-progress">{tr("task.step.progress", { p0: stepIndex + 1, p1: steps.length })}</span>}
+        <div className="wo-step-actions">
+          {stepIndex > 0 && <button type="button" onClick={() => setStepIndex(stepIndex - 1)}>{tr("task.step.back")}</button>}
+          {lastStep ? <button className="wo-primary" disabled={!selected.length || daysMissing}>{busy ? tr("saving") : tr("save.task")}</button> : <button className="wo-primary" disabled={step === 'servers' ? !selected.length : daysMissing}>{tr("task.step.next")}</button>}
+        </div>
       </div>
     </fieldset>
   </form>
