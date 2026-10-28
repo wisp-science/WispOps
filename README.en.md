@@ -9,7 +9,7 @@ Multi-host server operations for DeepSeek Harness: server management, an indepen
 Requires DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`. The package is available on npm and can be installed with the Harness CLI:
 
 ```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
 ```
 
 On Windows, quit Harness completely, including its tray process, before switching from a GitHub installation to npm. Run the command from an external PowerShell window and reopen Harness afterwards. For `EPERM rename`, see the [recovery steps](./docs/install.md#windows-从-github-版切换到-npm-版) (Chinese).

@@ -9,7 +9,7 @@ DeepSeek Harness 的多主机服务器运维插件：服务器管理、独立加
 需要 DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`。包已发布到 npm，可用 Harness CLI 安装：
 
 ```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
 ```
 
 Windows 从 GitHub 版切换到 npm 版时，先完全退出 Harness（含托盘），再从外部 PowerShell 执行命令，安装完成后重开。遇到 `EPERM rename` 时见[恢复步骤](./docs/install.md#windows-从-github-版切换到-npm-版)。

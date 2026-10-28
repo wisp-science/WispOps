@@ -41,7 +41,7 @@ GitHub 版可在运维面板的 **版本更新** 中检查稳定 Release、安�
 安装 npm 版：
 
 ```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
 ```
 
 或安装 GitHub 版：
@@ -67,7 +67,7 @@ ERR_PNPM_EPERM ... rename '...\dsh-wisp-ops_tmp_<pid>_<n>' -> '...\dsh-wisp-ops'
 
    ```powershell
    Set-Location $env:USERPROFILE
-   dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+   dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
    ```
 
 3. 成功后重新打开 Harness，确认 WispOps 启用、服务器和任务仍在。
@@ -86,7 +86,7 @@ ERR_PNPM_EPERM ... rename '...\dsh-wisp-ops_tmp_<pid>_<n>' -> '...\dsh-wisp-ops'
     Get-ChildItem -LiteralPath $wispModules -Directory -Force |
         Where-Object { $_.Name -eq 'dsh-wisp-ops' -or $_.Name -match '^dsh-wisp-ops_tmp_\d+_\d+$' } |
         ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $wispBackup -ErrorAction Stop }
-    dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+    dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
     if ($LASTEXITCODE -ne 0) {
         throw "安装未完成，请保留备份并检查新的错误：$wispBackup"
     }
