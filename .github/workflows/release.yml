@@ -3,20 +3,43 @@ on:
   push:
     tags: ['v*']
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   release:
+    if: github.repository == 'wisp-science/WispOps'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-      - run: node -e 'if ("v" + JSON.parse(require("fs").readFileSync("package.json")).version !== process.env.GITHUB_REF_NAME) process.exit(1)'
+      - name: Check release version
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          if (`v${pkg.version}` !== process.env.GITHUB_REF_NAME || lock.version !== pkg.version || lock.packages[''].version !== pkg.version) {
+            throw new Error('The release tag, package.json and package-lock.json versions must match')
+          }
+          JS
       - run: npm ci
       - run: npm run typecheck && npm test && npm run build && npm run check:generated
-      - run: npm pack --ignore-scripts
+      - name: Pack the verified build
+        run: |
+          mkdir -p artifacts/packages
+          npm pack --ignore-scripts --pack-destination artifacts/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: artifacts/packages/*.tgz
+          if-no-files-found: error
       - name: Read release notes from CHANGELOG
         run: |
           node --input-type=module <<'JS'
@@ -28,9 +51,35 @@ jobs:
           JS
       - run: |
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            gh release create "$GITHUB_REF_NAME" dsh-wisp-ops-*.tgz --verify-tag --title "WispOps ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
+            gh release create "$GITHUB_REF_NAME" artifacts/packages/dsh-wisp-ops-*.tgz --verify-tag --title "WispOps ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
           else
-            gh release create "$GITHUB_REF_NAME" dsh-wisp-ops-*.tgz --verify-tag --title "WispOps ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+            gh release create "$GITHUB_REF_NAME" artifacts/packages/dsh-wisp-ops-*.tgz --verify-tag --title "WispOps ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
           fi
         env:
           GH_TOKEN: ${{ github.token }}
+  publish-npm:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11 --registry=https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: artifacts/packages
+      - name: Publish the release archive to npm
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dist_tag=latest
+          if [[ "$version" == *-* ]]; then
+            dist_tag=next
+          fi
+          npm publish "./artifacts/packages/dsh-wisp-ops-${version}.tgz" --ignore-scripts --access public --provenance --tag "$dist_tag" --registry=https://registry.npmjs.org
