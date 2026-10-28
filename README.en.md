@@ -6,24 +6,52 @@ Multi-host server operations for DeepSeek Harness: server management, an indepen
 
 ## Install
 
-Requires DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`. The package is available on npm and can be installed with the Harness CLI:
+Requires DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`. **The npm version is recommended**: it downloads a packaged release directly, making installation simpler without needing access to GitHub. npm and GitHub are two installation sources for the same plugin; choose one. Neither requires a local build.
+
+### Option 1: npm (recommended)
+
+Install the [latest stable npm release](https://www.npmjs.com/package/dsh-wisp-ops) from a terminal:
+
+```bash
+dsh plugin --profile desktop add dsh-wisp-ops@latest
+```
+
+To install a specific version, such as `0.10.1`:
 
 ```bash
 dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
 ```
 
-On Windows, quit Harness completely, including its tray process, before switching from a GitHub installation to npm. Run the command from an external PowerShell window and reopen Harness afterwards. For `EPERM rename`, see the [recovery steps](./docs/install.md#windows-从-github-版切换到-npm-版) (Chinese).
+`desktop` is the default profile for the desktop app; web installations usually use `web`. Restart Harness after installation and confirm the plugin is enabled.
 
-You can also install the GitHub version through the plugin page (this method requires access to GitHub):
+### Option 2: GitHub
+
+This method requires access to GitHub. Use either the plugin page or the command line.
+
+**Install through the plugin page:**
 
 1. In Harness open **Plugins** → **＋ Add plugin** and paste `https://github.com/wisp-science/WispOps`.
-2. **Install source**: pick the **China mainland mirror** on networks inside China, otherwise the **official npm registry**.
+2. **Install source**: pick the **China mainland mirror** on networks inside China, otherwise the **official npm registry**. This setting only changes where dependencies are downloaded; the plugin still comes from GitHub.
 3. Click **Install** and confirm the plugin is enabled.
 4. Quit Harness completely and reopen it.
 
-Upgrading: GitHub installations can use **Updates** in the operations panel to check for and install the latest stable Release, or turn on automatic updates. Update npm installations through the Harness plugin manager or CLI; the panel updater currently supports only GitHub sources. Restart Harness afterwards. Local development links are never overwritten. Older versions can be uninstalled and reinstalled; nothing under `~/.dsh-wisp-ops/` is deleted.
+**Install from the command line:**
 
-Command-line installation, installing from a local checkout and common errors are covered in [docs/install.md](./docs/install.md) (Chinese).
+```bash
+dsh plugin --profile desktop add github:wisp-science/WispOps
+```
+
+Restart Harness after installation.
+
+### Upgrading and switching sources
+
+- **npm**: rerun the `@latest` command above to upgrade, or specify the version you want to install.
+- **GitHub**: use **Updates** in the operations panel to check for and install a stable Release, or enable automatic updates. The panel updater currently supports only GitHub sources.
+- **Switching from GitHub to npm on Windows**: quit Harness completely, including its tray process, then run the npm installation command from an external PowerShell window and reopen Harness afterwards. For `EPERM rename`, see the [recovery steps](./docs/install.md#windows-从-github-版切换到-npm-版) (Chinese).
+
+Both sources use the same package name and installation directory. Servers, credentials and tasks are stored in `~/.dsh-wisp-ops/` by default; uninstalling and reinstalling does not delete this directory. The panel updater does not overwrite local development links.
+
+Installing from a local checkout and common errors are covered in [docs/install.md](./docs/install.md) (Chinese).
 
 ## Getting started
 

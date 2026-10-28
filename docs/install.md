@@ -4,7 +4,27 @@
 
 要求：DeepSeek Harness `0.2.1-rc.3` 及以上、`0.3.0` 以下。支持 npm 和 GitHub 两种来源；GitHub 安装方式需要本机能访问 GitHub。**不需要** WispTerm，也**不需要**在本机构建（npm 包和仓库均附带构建好的 `lib/`）。
 
-## 方式一：在 Harness 插件页面安装 GitHub 版
+## 方式一：npm 版（推荐）
+
+从 npm 下载已打包的发行版本，安装更方便，无需访问 GitHub。在终端中安装最新稳定版：
+
+```bash
+dsh plugin --profile desktop add dsh-wisp-ops@latest
+```
+
+如需固定到某个版本，例如 `0.10.1`：
+
+```bash
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
+```
+
+`desktop` 是桌面版的默认 profile；Web 版通常是 `web`。安装后重启 Harness，在插件列表确认 WispOps 已启用。可从左侧 **服务器运维**，或会话右侧栏 **开始** → **服务器运维** 打开管理面板。
+
+Windows 更换安装来源前，请先完全退出 Harness（含托盘），再从外部 PowerShell 执行命令；详见下方的 [Windows 迁移步骤](#windows-从-github-版切换到-npm-版)。
+
+## 方式二：GitHub 版
+
+需要本机能访问 GitHub。通过 Harness 插件页面安装：
 
 1. 打开 DeepSeek Harness，点击左侧 **插件**。
 2. 点击右上角 **＋ 添加插件**，在弹窗输入框中粘贴 GitHub 仓库地址：
@@ -26,33 +46,25 @@
    - 左侧栏点击 **服务器运维**，进入完整管理面板；
    - 或在会话右侧栏的 **开始** 页点击 **服务器运维**，在对话旁使用。
 
-## 升级到新版本
-
-GitHub 版可在运维面板的 **版本更新** 中检查稳定 Release、安装或开启自动更新，见[更新说明](./operations.md#检查更新与自动更新)。面板内更新目前仅支持 GitHub 来源；npm 版应通过 Harness 插件管理或下面的 CLI 命令更新。对于旧版或不支持原位更新的环境，仍可重装：
-
-1. 在 **插件** 页面找到 WispOps，点击 **卸载**。之前从本地目录安装过的（`link:` 方式），同样要先卸载。
-2. 按上面的方式一重新粘贴 GitHub 地址并安装。
-3. 重启 Harness。
-
-服务器清单、密码库和例行任务默认保存在 `~/.dsh-wisp-ops/`，卸载重装不会删除这个目录。
-
-## 方式二：命令行安装
-
-安装 npm 版：
-
-```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.10.1
-```
-
-或安装 GitHub 版：
+也可通过命令行安装：
 
 ```bash
 dsh plugin --profile desktop add github:wisp-science/WispOps
 ```
 
-`desktop` 是桌面版的默认 profile；Web 版通常是 `web`。安装后重启 Harness。
+安装后重启 Harness。
 
-### Windows 从 GitHub 版切换到 npm 版
+## 升级到新版本
+
+GitHub 版可在运维面板的 **版本更新** 中检查稳定 Release、安装或开启自动更新，见[更新说明](./operations.md#检查更新与自动更新)。面板内更新目前仅支持 GitHub 来源；npm 版重新执行 `dsh plugin --profile desktop add dsh-wisp-ops@latest`，或指定要安装的版本。对于旧版或不支持原位更新的环境，仍可重装：
+
+1. 在 **插件** 页面找到 WispOps，点击 **卸载**。之前从本地目录安装过的（`link:` 方式），同样要先卸载。
+2. 按上面的 npm 或 GitHub 安装方式重新安装。
+3. 重启 Harness。
+
+服务器清单、密码库和例行任务默认保存在 `~/.dsh-wisp-ops/`，卸载重装不会删除这个目录。
+
+## Windows 从 GitHub 版切换到 npm 版
 
 两个来源使用相同的包名和安装目录。若日志显示：
 

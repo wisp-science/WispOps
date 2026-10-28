@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Separate npm and GitHub installation instructions in both READMEs and the installation guide; recommend npm, show latest and pinned-version commands, and clarify upgrades and Windows source migration.
+
 ## 0.10.1 — 2026-10-27
 
 - Remove externally configured or WispTerm servers from WispOps without editing their source. Exclusions survive reloads and restarts, sync with a visible import preview, and can be restored from the server toolbar with saved credential links and permissions. Refuse removal while a task names the host or would lose its last target; ssh_config imports remain deletable and can be imported again.
