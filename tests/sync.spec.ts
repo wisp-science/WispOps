@@ -94,6 +94,29 @@ it('previews automation permission, sudo tasks and bindings for externally confi
   expect(preview.bindings).toContainEqual({ host: 'yaml-host', auth: 'password', loginSecret: 'automated' })
   expect(JSON.stringify(preview)).not.toContain('never-in-preview')
 })
+it('previews and syncs exclusions for external hosts, including replacement by legacy snapshots', async () => {
+  const a = await device(1), b = await device(2)
+  b.service.config.hosts.push({ name: 'external' })
+  b.service.inventory = await Inventory.load(b.service.config)
+  const store = managedStore(a.dir)
+  await store.change((await store.read()).revision, value => ({ ...value, excludedHosts: ['external'], policies: { external: { sudo: 'deny' } } }))
+  const uploaded = await a.sync.handle('syncPush', { webdav, passphrase }) as any
+  const preview = await b.sync.handle('syncPreview', { webdav, passphrase, name: uploaded.name }) as any
+  expect(preview).toMatchObject({ incoming: { excludedHosts: 1 }, local: { excludedHosts: 0 }, excludedHosts: ['external'], localExcludedHosts: [] })
+  await b.sync.handle('syncPull', { webdav, passphrase, token: preview.token })
+  expect(b.service.inventory.hosts.has('external')).toBe(false)
+  expect((await Inventory.load(b.service.config)).hosts.has('external')).toBe(false)
+  expect((await managedStore(b.dir).read()).value).toMatchObject({ excludedHosts: ['external'], policies: { external: { sudo: 'deny' } } })
+  // Old encrypted snapshots do not contain excludedHosts; preview makes the reappearance visible.
+  const legacy = await openSync(remote.get(uploaded.name)!, passphrase) as any
+  delete legacy.managed.excludedHosts
+  remote.set(uploaded.name, await sealSync(legacy, passphrase))
+  const older = await b.sync.handle('syncPreview', { webdav, passphrase, name: uploaded.name }) as any
+  expect(older).toMatchObject({ incoming: { excludedHosts: 0 }, local: { excludedHosts: 1 }, excludedHosts: [], localExcludedHosts: ['external'] })
+  await b.sync.handle('syncPull', { webdav, passphrase, token: older.token })
+  expect(b.service.inventory.hosts.get('external')?.policy.sudo).toBe('deny')
+})
+
 it('refuses changed remote data after preview and never overwrites snapshots', async () => {
   const a = await device(1), b = await device(2); await seed(a)
   const uploaded = await a.sync.handle('syncPush', { webdav, passphrase }) as any

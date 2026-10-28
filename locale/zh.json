@@ -282,7 +282,7 @@
     "webdav.application.password": "WebDAV 应用密码",
     "independent.sync.passphrase.at.least.12": "独立同步口令（至少 12 个字符）",
     "include.ssh.private.keys.referenced.by": "在上传的加密快照中包含面板服务器引用的 SSH 私钥",
-    "sync.includes.the.local.vault.panel": "同步范围：独立密码库、面板服务器与关联、任务和自建模板。YAML、会话、审批授权和已启用的调度不参与同步。",
+    "sync.includes.the.local.vault.panel": "同步独立密码库、面板服务器及凭据关联、已移除的服务器名称、任务和自建模板；YAML、会话、临时授权和实际调度留在各设备。",
     "upload.a.new.encrypted.snapshot": "上传新的加密快照",
     "list.cloud.snapshots": "读取云端快照",
     "choose.a.cloud.version": "选择云端版本",
@@ -475,6 +475,16 @@
     "quiet.hours.hint": "这段本地时间内不发送外部通知，报告仍会送到会话。",
     "quiet.hours.start": "从",
     "quiet.hours.end": "到",
-    "quiet.hours.summary": "静默 {p0}–{p1}"
+    "quiet.hours.summary": "静默 {p0}–{p1}",
+    "remove.server": "从 WispOps 移除",
+    "remove.server.confirm": "将“{p0}”从 WispOps 移除？",
+    "remove.server.effect": "原 WispTerm、ssh_config 和 YAML 配置不变，刷新或重启后仍保持移除。凭据关联、权限设置和历史记录保留，可稍后恢复。若任务仍直接引用它，或移除后将没有可用目标，请先编辑或删除这些任务。",
+    "removed.servers": "已移除的服务器",
+    "removed.servers.count": "已移除（{p0}）",
+    "removed.servers.hint": "恢复后将按当前原始配置重新载入，并沿用已保存的凭据关联和权限。若原始配置已不存在，待该来源再次提供服务器后才会显示。恢复的服务器可能重新加入按分组或通配符选择的任务。",
+    "restore.server": "恢复",
+    "restore.server.named": "恢复 {p0}",
+    "ssh.import.excluded": "已移除，请先恢复",
+    "sync.removed.servers": "已移除的服务器：{p0} → {p1}。导入也会替换此列表，较早的快照可能让已移除的服务器重新出现。"
   }
 }

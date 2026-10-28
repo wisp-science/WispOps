@@ -282,7 +282,7 @@
     "webdav.application.password": "WebDAV application password",
     "independent.sync.passphrase.at.least.12": "Independent sync passphrase (at least 12 characters)",
     "include.ssh.private.keys.referenced.by": "Include SSH private keys referenced by panel-managed servers in the encrypted upload",
-    "sync.includes.the.local.vault.panel": "Sync includes the local vault, panel-managed servers and bindings, tasks and custom templates. YAML, sessions, grants and active schedules stay on each device.",
+    "sync.includes.the.local.vault.panel": "Sync includes the local vault, panel-managed servers and bindings, removed server names, tasks and custom templates. YAML, sessions, grants and active schedules stay on each device.",
     "upload.a.new.encrypted.snapshot": "Upload a new encrypted snapshot",
     "list.cloud.snapshots": "List cloud snapshots",
     "choose.a.cloud.version": "Choose a cloud version",
@@ -475,6 +475,16 @@
     "quiet.hours.hint": "No external notifications between these local times; the report still arrives in the session.",
     "quiet.hours.start": "From",
     "quiet.hours.end": "To",
-    "quiet.hours.summary": "Quiet {p0}–{p1}"
+    "quiet.hours.summary": "Quiet {p0}–{p1}",
+    "remove.server": "Remove from WispOps",
+    "remove.server.confirm": "Remove “{p0}” from WispOps?",
+    "remove.server.effect": "Keeps WispTerm, ssh_config and YAML unchanged. The server stays removed after refresh or restart. Credential links, permissions and history are kept for restoration. First edit or delete any task that names this server or would lose its last target.",
+    "removed.servers": "Removed servers",
+    "removed.servers.count": "Removed ({p0})",
+    "removed.servers.hint": "Restore a server using its current source configuration and saved credential links and permissions. If its source is unavailable, it will appear when the source provides it again. Restored servers can rejoin tasks selected by group or wildcard.",
+    "restore.server": "Restore",
+    "restore.server.named": "Restore {p0}",
+    "ssh.import.excluded": "Removed; restore first",
+    "sync.removed.servers": "Removed servers: {p0} → {p1}. Import replaces this list too; an older snapshot may restore previously removed servers."
   }
 }

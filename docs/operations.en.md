@@ -53,6 +53,8 @@ Snapshots contain the entire independent vault, including credentials disabled f
 
 Explicitly opt in to include SSH private keys referenced by panel-managed hosts' `identityFile` fields. Enter an explicit path when adding a server. Default SSH identities are never scanned. Imported keys are written privately under `dataDir/ssh-keys/`, and the hosts' paths are remapped. YAML-owned hosts and keys need separate configuration.
 
+Removed server names also travel with snapshots and apply to matching names from every source. The preview shows the current and incoming lists. Import replaces this list; older snapshots without it clear local exclusions and may bring removed servers back.
+
 Snapshots use a random salt, fixed scrypt parameters (N=32768, r=8, p=1) and XChaCha20-Poly1305. Only ciphertext reaches WebDAV. OS vault keys never leave the device; credentials are re-encrypted under the destination device's own key. The application password and sync passphrase are not persisted. Losing the sync passphrase makes cloud snapshots unrecoverable.
 
 Every upload has a unique filename, preserving other devices' versions. Before import, the previous local state is encrypted under the same passphrase in `dataDir/sync-backups/`. To recover, upload that file to the WebDAV collection under its original filename, then preview and import it. Multi-file writes recover from ordinary write failures but are not crash-atomic; inspect credentials and bindings after a process interruption. Sync is manually triggered snapshot transfer, not background bidirectional merging.

@@ -13,7 +13,7 @@ import { OpsManagement, OpsManager } from '../src/management.ts'
 import type { Scheduler, ScheduledRecord } from '../src/management.ts'
 import { LocalVault, routeSecrets } from '../src/vault.ts'
 import { noSecrets } from '../src/secrets.ts'
-import { managedStore } from '../src/managed.ts'
+import { managedStore, validateManaged } from '../src/managed.ts'
 import { addTemplateDraft, builtinTemplates } from '../src/task-library.ts'
 
 let dir: string, vault: LocalVault, service: OpsService, manager: OpsManager, records: ScheduledRecord[], scheduler: Scheduler
@@ -363,7 +363,6 @@ describe('server and task management', () => {
     await saveTask({ targets: 'a,gx' })
     await expect(manager.dispatch({ action: 'deleteHost', name: 'gx', revision: await revision() })).rejects.toThrow('daily')
     await manager.dispatch({ action: 'deleteTask', name: 'daily', revision: await revision() })
-    await expect(manager.dispatch({ action: 'deleteHost', name: 'a', revision: await revision() })).rejects.toThrow('配置文件')
     await manager.dispatch({ action: 'deleteHost', name: 'gx', revision: await revision() })
     expect(service.inventory.hosts.has('gx')).toBe(false)
     const managed = JSON.parse(await readFile(join(dir, 'managed.json'), 'utf8'))
@@ -478,6 +477,12 @@ describe('real DSH Gateway', () => {
     expect(result.value.hosts.map((h: any) => h.name)).toEqual(['a', 'b'])
     await expect(ctx.typertGateway.invoke({ namespace: 'wispOps', method: 'manage', args: { request: { action: 'snapshot' } }, peer: { ...(peer as object), principal: { kind: 'untrusted' } } as never })).rejects.toThrow()
     expect(await (ctx.get('wispOps') as OpsManagement).manage({ action: 'snapshot' })).toMatchObject({ ok: false })
+    for (const action of ['deleteHost', 'restoreHost']) {
+      await expect(ctx.typertGateway.invoke({ namespace: 'wispOps', method: 'manage', args: { request: { action, name: 'a', revision: await revision() } }, peer: { ...(peer as object), principal: { kind: 'untrusted' } } as never })).rejects.toThrow()
+      expect(await (ctx.get('wispOps') as OpsManagement).manage({ action, name: 'a', revision: await revision() })).toMatchObject({ ok: false })
+    }
+    expect(service.inventory.hosts.has('a')).toBe(true)
+    expect((await snap()).excludedHosts).toEqual([])
     ctx.registry.delete(OpsManagement); ctx.registry.delete(TypertGatewayService); ctx.registry.delete(RemoteAccessService); ctx.registry.delete(TypertRegistry)
   })
 })
@@ -600,6 +605,94 @@ describe('independent task library', () => {
   })
 })
 
+describe('external server removal', () => {
+  it('persists exclusions across reloads without changing sources, then restores bindings and deny policies', async () => {
+    const yaml = '# preserve comments\nhosts:\n  - name: file-host\n    ssh: file.example\n'
+    await writeFile(service.config.inventoryFile!, yaml)
+    const imported = [{ name: 'wisp', ssh: '192.0.2.30', groups: ['lab'] }, { name: 'file-host', ssh: 'overridden.example' }]
+    const originalImported = structuredClone(imported)
+    service = new OpsService(service.config, await Inventory.load(service.config, imported), routeSecrets(vault, noSecrets), imported)
+    manager = new OpsManager(service, vault, () => scheduler)
+    await saveCredential()
+    await manager.dispatch({ action: 'bindCredentials', host: 'wisp', binding: { auth: 'password', loginSecret: 'local:login' }, revision: await revision() })
+    await manager.dispatch({ action: 'setPolicy', host: 'wisp', policy: { sudo: 'deny', change: 'deny' }, revision: await revision() })
+    const names = ['a', 'file-host', 'wisp']
+    for (const name of names) await manager.dispatch({ action: 'deleteHost', name, revision: await revision() })
+    for (const inventory of [service.inventory, await Inventory.load(service.config, imported)]) {
+      expect([...inventory.hosts.keys()]).toEqual(['b'])
+      expect(inventory.select('all').map(h => h.name)).toEqual(['b'])
+      expect(() => inventory.select('wisp')).toThrow('unknown host')
+    }
+    const view = await snap()
+    expect(view.excludedHosts).toEqual(names)
+    expect(JSON.stringify(view)).not.toContain(credential.password)
+    expect(await readFile(service.config.inventoryFile!, 'utf8')).toBe(yaml)
+    expect(imported).toEqual(originalImported)
+    expect(service.config.hosts.map(h => h.name)).toEqual(['a', 'b'])
+    for (const name of names) await manager.dispatch({ action: 'restoreHost', name, revision: await revision() })
+    expect((await snap()).excludedHosts).toEqual([])
+    for (const inventory of [service.inventory, await Inventory.load(service.config, imported)]) {
+      expect(inventory.hosts.get('file-host')?.ssh).toBe('file.example')
+      expect(inventory.hosts.get('wisp')).toMatchObject({ auth: 'password', loginSecret: 'local:login', policy: { sudo: 'deny', change: 'deny' } })
+    }
+  })
+  it('rejects direct task references, stale writes, duplicate removal and accidental same-name additions', async () => {
+    await saveTask()
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'a', revision: await revision() })).rejects.toThrow('daily')
+    await manager.dispatch({ action: 'deleteTask', name: 'daily', revision: await revision() })
+    const stale = await revision()
+    await manager.dispatch({ action: 'deleteHost', name: 'a', revision: stale })
+    const before = await readFile(join(dir, 'managed.json'), 'utf8')
+    await expect(manager.dispatch({ action: 'restoreHost', name: 'a', revision: stale })).rejects.toThrow('刷新')
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'b', revision: stale })).rejects.toThrow('刷新')
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'a', revision: await revision() })).rejects.toThrow('已被删除')
+    await expect(manager.dispatch({ action: 'restoreHost', name: 'missing', revision: await revision() })).rejects.toThrow('不在移除列表')
+    await expect(manager.dispatch({ action: 'addHost', host: { name: 'a', ssh: '192.0.2.99' }, revision: await revision() })).rejects.toThrow('先在')
+    expect(await readFile(join(dir, 'managed.json'), 'utf8')).toBe(before)
+    expect(service.inventory.hosts.has('b')).toBe(true)
+  })
+  it.each(['all', '@lab', 'tag:lab', 'file-*'])('keeps %s tasks valid and refuses to remove their last target', async targets => {
+    const yaml = { hosts: [{ name: 'file-one', groups: ['lab'], tags: { lab: 'yes' } }, { name: 'file-two', groups: ['lab'], tags: { lab: 'yes' } }], tasks: [{ name: 'yaml-task', targets, playbook: 'inspect' }] }
+    await writeFile(service.config.inventoryFile!, JSON.stringify(yaml))
+    await manager.dispatch({ action: 'deleteHost', name: 'file-one', revision: await revision() })
+    expect(service.inventory.select(targets).some(h => h.name === 'file-one')).toBe(false)
+    if (targets === 'all') {
+      await manager.dispatch({ action: 'deleteHost', name: 'a', revision: await revision() })
+      await manager.dispatch({ action: 'deleteHost', name: 'b', revision: await revision() })
+    }
+    const before = await readFile(join(dir, 'managed.json'), 'utf8')
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'file-two', revision: await revision() })).rejects.toThrow('yaml-task')
+    expect(await readFile(join(dir, 'managed.json'), 'utf8')).toBe(before)
+    expect(service.inventory.hosts.has('file-two')).toBe(true)
+    expect(await readFile(service.config.inventoryFile!, 'utf8')).toBe(JSON.stringify(yaml))
+  })
+  it('keeps negative task references valid and permits an empty inventory when there are no tasks', async () => {
+    await writeFile(service.config.inventoryFile!, JSON.stringify({ tasks: [{ name: 'except-a', targets: 'all,!a', playbook: 'inspect' }] }))
+    await expect(manager.dispatch({ action: 'deleteHost', name: 'a', revision: await revision() })).rejects.toThrow('except-a')
+    await writeFile(service.config.inventoryFile!, 'hosts: []\n')
+    for (const name of ['a', 'b']) await manager.dispatch({ action: 'deleteHost', name, revision: await revision() })
+    expect((await snap()).hosts).toEqual([])
+    expect((await snap()).excludedHosts).toEqual(['a', 'b'])
+    await manager.dispatch({ action: 'restoreHost', name: 'a', revision: await revision() })
+    expect(service.inventory.hosts.has('a')).toBe(true)
+  })
+  it('can clear an exclusion after the original source disappears', async () => {
+    await writeFile(service.config.inventoryFile!, 'hosts:\n  - name: temporary\n')
+    await manager.dispatch({ action: 'deleteHost', name: 'temporary', revision: await revision() })
+    await writeFile(service.config.inventoryFile!, 'hosts: []\n')
+    const result = await manager.dispatch({ action: 'restoreHost', name: 'temporary', revision: await revision() })
+    expect(result).toMatchObject({ message: expect.stringContaining('原始配置') })
+    expect((await snap()).excludedHosts).toEqual([])
+    expect(service.inventory.hosts.has('temporary')).toBe(false)
+  })
+  it('accepts older management files but fails closed on malformed exclusion lists', () => {
+    const legacy = { version: 1, hosts: [], tasks: [], bindings: {} }
+    expect(validateManaged(legacy).excludedHosts).toEqual([])
+    expect(validateManaged({ ...legacy, excludedHosts: ['a', 'a'] }).excludedHosts).toEqual(['a'])
+    for (const excludedHosts of [null, 'a', {}, [null], [5], [''], ['a,b'], ['../a']]) expect(() => validateManaged({ ...legacy, excludedHosts })).toThrow('Invalid excluded hosts')
+  })
+})
+
 describe('onboarding and audit', () => {
   const FIXTURES = join(import.meta.dirname, 'fixtures')
   async function fakeSshManager(extra: Record<string, unknown> = {}) {
@@ -613,14 +706,31 @@ describe('onboarding and audit', () => {
     return { local, localManager: new OpsManager(local, vault, () => scheduler) }
   }
 
+  it('deletes and reimports ssh_config entries while keeping excluded external names out of imports', async () => {
+    const { local, localManager } = await fakeSshManager()
+    const rev = async () => (await localManager.dispatch({ action: 'snapshot' }) as any).revision
+    const source = await readFile(join(dir, 'ssh_config'), 'utf8')
+    await localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['web-01'], revision: await rev() })
+    await localManager.dispatch({ action: 'deleteHost', name: 'web-01', revision: await rev() })
+    expect(local.inventory.hosts.has('web-01')).toBe(false)
+    expect((await Inventory.load(local.config)).hosts.has('web-01')).toBe(false)
+    await localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['web-01'], revision: await rev() })
+    expect(local.inventory.hosts.has('web-01')).toBe(true)
+    await localManager.dispatch({ action: 'deleteHost', name: 'a', revision: await rev() })
+    expect((await localManager.dispatch({ action: 'sshConfigHosts' }) as any).hosts.find((h: any) => h.name === 'a')).toMatchObject({ existing: false, excluded: true })
+    await expect(localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['a'], revision: await rev() })).rejects.toThrow('先恢复')
+    expect(local.inventory.hosts.has('a')).toBe(false)
+    expect(await readFile(join(dir, 'ssh_config'), 'utf8')).toBe(source)
+  })
+
   it('lists ssh_config aliases, imports the chosen ones through their alias and probes them', async () => {
     const { local, localManager } = await fakeSshManager()
     const listed = await localManager.dispatch({ action: 'sshConfigHosts' }) as any
     expect(listed.path).toBe(join(dir, 'ssh_config'))
     expect(listed.hosts).toEqual([
-      { alias: 'web-01', name: 'web-01', target: 'deploy@10.0.0.1', source: join(dir, 'ssh_config'), existing: false },
-      { alias: 'web-02', name: 'web-02', target: 'deploy@10.0.0.1', source: join(dir, 'ssh_config'), existing: false },
-      { alias: 'a', name: 'a', target: '192.0.2.1', source: join(dir, 'ssh_config'), existing: true },
+      { alias: 'web-01', name: 'web-01', target: 'deploy@10.0.0.1', source: join(dir, 'ssh_config'), existing: false, excluded: false },
+      { alias: 'web-02', name: 'web-02', target: 'deploy@10.0.0.1', source: join(dir, 'ssh_config'), existing: false, excluded: false },
+      { alias: 'a', name: 'a', target: '192.0.2.1', source: join(dir, 'ssh_config'), existing: true, excluded: false },
     ])
     await expect(localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['nope'], revision: (await localManager.dispatch({ action: 'snapshot' }) as any).revision })).rejects.toThrow('nope')
     await expect(localManager.dispatch({ action: 'importSshConfigHosts', aliases: ['a'], revision: (await localManager.dispatch({ action: 'snapshot' }) as any).revision })).rejects.toThrow('已存在')

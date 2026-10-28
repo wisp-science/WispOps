@@ -5,10 +5,14 @@ import { LocalState } from './local-state.ts'
 
 export interface CredentialBinding { auth: 'key' | 'password'; loginSecret?: string; sudoSecret?: string }
 /** Per-host permission overrides set in the panel; they apply to same-named YAML or WispTerm hosts too. */
-export interface ManagedState { version: 1; hosts: HostSpec[]; bindings: Record<string, CredentialBinding>; tasks: TaskSpec[]; policies: Record<string, PolicySpec> }
+export interface ManagedState {
+  version: 1; hosts: HostSpec[]; bindings: Record<string, CredentialBinding>; tasks: TaskSpec[]; policies: Record<string, PolicySpec>
+  /** Owner-excluded inventory names; external source files are never changed. */
+  excludedHosts: string[]
+}
 
 export function managedStore(dataDir: string): LocalState<ManagedState> {
-  return new LocalState(join(dataDir, 'managed.json'), () => ({ version: 1, hosts: [], bindings: {}, tasks: [], policies: {} }), validateManaged)
+  return new LocalState(join(dataDir, 'managed.json'), () => ({ version: 1, hosts: [], bindings: {}, tasks: [], policies: {}, excludedHosts: [] }), validateManaged)
 }
 export function validateManaged(value: unknown): ManagedState {
   const raw = value as ManagedState
@@ -28,7 +32,10 @@ export function validateManaged(value: unknown): ManagedState {
       Object.defineProperty(policies, name, { value: validatePolicy(policy), enumerable: true, writable: true, configurable: true })
     }
   }
-  return { version: 1, hosts: parsed.hosts, tasks: parsed.tasks, bindings, policies }
+  // Absent in older files and sync snapshots. Reject malformed exclusions instead of re-enabling hosts.
+  const excludedHosts = raw.excludedHosts === undefined ? [] : raw.excludedHosts
+  if (!Array.isArray(excludedHosts) || excludedHosts.some(name => typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name))) throw new Error('Invalid excluded hosts')
+  return { version: 1, hosts: parsed.hosts, tasks: parsed.tasks, bindings, policies, excludedHosts: [...new Set(excludedHosts)] }
 }
 
 /** A partial capability table with only allow / ask / deny values and no unknown keys. */

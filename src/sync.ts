@@ -94,9 +94,10 @@ export class OpsSync {
       this.previews.set(token, { url: dav.url.href, name: request.name, hash: digest(encrypted), revisions, expires: Date.now() + 10 * 60_000 })
       return {
         token, at: s.at,
-        incoming: { hosts: s.managed.hosts.length, credentials: s.credentials.length, tasks: s.managed.tasks.length, templates: s.templates.length, keys: s.keys.length },
-        local: { hosts: local.value.hosts.length, credentials: localVault.entries.length, tasks: local.value.tasks.length },
+        incoming: { excludedHosts: s.managed.excludedHosts.length, hosts: s.managed.hosts.length, credentials: s.credentials.length, tasks: s.managed.tasks.length, templates: s.templates.length, keys: s.keys.length },
+        local: { excludedHosts: local.value.excludedHosts.length, hosts: local.value.hosts.length, credentials: localVault.entries.length, tasks: local.value.tasks.length },
         conflicts: s.credentials.filter(e => localVault.entries.some(old => old.name === e.name)).map(e => e.name),
+        excludedHosts: s.managed.excludedHosts, localExcludedHosts: local.value.excludedHosts,
         hostNames: s.managed.hosts.map(h => h.name), credentialNames: s.credentials.map(e => e.name),
         policies: [...s.managed.hosts.filter(h => h.policy).map(h => ({ host: h.name, policy: h.policy })), ...Object.entries(s.managed.policies).map(([host, policy]) => ({ host, policy }))],
         automatedCredentials: s.credentials.filter(e => e.agent).map(e => e.name),

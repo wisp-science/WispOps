@@ -12,6 +12,8 @@ export interface ManagedState {
     bindings: Record<string, CredentialBinding>;
     tasks: TaskSpec[];
     policies: Record<string, PolicySpec>;
+    /** Owner-excluded inventory names; external source files are never changed. */
+    excludedHosts: string[];
 }
 export declare function managedStore(dataDir: string): LocalState<ManagedState>;
 export declare function validateManaged(value: unknown): ManagedState;

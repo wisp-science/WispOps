@@ -163,7 +163,8 @@ export class Inventory {
     }
     const names = new Set(configured.map(h => h.name))
     const state = managed ?? (await managedStore(config.dataDir).read()).value
-    const hosts = [...imported.filter(h => !names.has(h.name)), ...configured, ...state.hosts].map(h => {
+    const excluded = new Set(state.excludedHosts)
+    const hosts = [...imported.filter(h => !names.has(h.name)), ...configured, ...state.hosts].filter(h => !excluded.has(h.name)).map(h => {
       const binding = Object.hasOwn(state.bindings, h.name) ? state.bindings[h.name] : undefined
       const override = Object.hasOwn(state.policies, h.name) && Object.keys(state.policies[h.name]!).length > 0 ? state.policies[h.name] : undefined
       return { ...h, ...binding, ...override === undefined ? {} : { policyOverride: override } }

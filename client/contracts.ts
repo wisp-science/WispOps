@@ -28,7 +28,7 @@ export interface TaskDraft {
 }
 export interface Snapshot {
   notificationChannels?: string[];
-  revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; tasks: Task[];
+  revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; excludedHosts: string[]; tasks: Task[];
   templates: { revision: string; entries: (import('../src/task-template-content').TaskTemplate & { builtin: boolean; uses: number })[]; drafts: TemplateDraft[] };
   timeZone: string; schedulerAvailable: boolean; warnings: string[];
 }
@@ -46,5 +46,5 @@ export interface Overview { generatedAt: string; limit: number; hosts: OverviewH
 export interface AuditRow { at: string; session?: string; tool: string; host: string; risk: string; sudo: boolean; authorization: string; command: string; reason?: string; status: string; exitCode: number | null; durationMs: number }
 export interface AuditLog { rows: AuditRow[]; limit: number; sinceHours: number; retentionMonths: number }
 /** A `Host` alias found in ssh_config by the `sshConfigHosts` action. */
-export interface SshConfigCandidate { alias: string; name: string; target: string; source: string; existing: boolean }
+export interface SshConfigCandidate { alias: string; name: string; target: string; source: string; existing: boolean; excluded: boolean }
 export interface ProbeResult { host: string; status: string; probe?: HostProbe; error: string }

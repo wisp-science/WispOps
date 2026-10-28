@@ -29,7 +29,7 @@ Command-line installation, installing from a local checkout and common errors ar
 
 Open **Server operations** in the left sidebar (or **Start** → **Server operations** in a session's right sidebar):
 
-1. **Servers**: add an address, user name and port, or import hosts from `~/.ssh/config` in one step; capabilities are probed as soon as a server is saved.
+1. **Servers**: add an address, user name and port, or import hosts from `~/.ssh/config` in one step; capabilities are probed as soon as a server is saved. Remove unneeded WispTerm or configured servers from WispOps and restore them from **Removed**, keeping their source configuration intact.
 2. **Vault**: create a credential with just a name and a password. Then link it to a server's SSH login and sudo separately in the server details, testing before you save. Key-based login and passwordless sudo need no credential.
 3. **Task library**: pick a built-in template or write your own, click **Link servers**, and set what to check and when to run.
 4. **Recurring tasks**: choose the session that receives reports, click **Run once** to see the result immediately, or **Enable schedule** to run on time. Harness must stay running; tasks that missed a slot are flagged on their card.
