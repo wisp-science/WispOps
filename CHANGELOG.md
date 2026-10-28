@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Document npm installation, manual publication and Windows migration from GitHub, including exiting Harness before replacement and a targeted directory-backup procedure for `EPERM rename`; clarify that the panel updater currently supports GitHub installations only and npm automation still needs enabling.
+
 ## 0.10.0 — 2026-10-27
 
 - Refuse every tool access to the data directory, inventory file and WispTerm store, not only writes: read-only shell commands such as `cat`, `base64` or `tar` that name them, or `vault.key` / `vault.json`, are denied, and any tool argument pointing into them is denied regardless of the tool's name. On Linux the vault key is a 0600 file the model's own user could read.

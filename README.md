@@ -6,14 +6,22 @@ DeepSeek Harness 的多主机服务器运维插件：服务器管理、独立加
 
 ## 安装
 
-需要 DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`，并能访问 GitHub。
+需要 DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`。包已发布到 npm，可用 Harness CLI 安装：
 
-1. Harness 左侧 **插件** → **＋ 添加插件**，粘贴 `https://github.com/wisp-science/WispOps`。只填这个地址，不填 npm 包名。
+```bash
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+```
+
+Windows 从 GitHub 版切换到 npm 版时，先完全退出 Harness（含托盘），再从外部 PowerShell 执行命令，安装完成后重开。遇到 `EPERM rename` 时见[恢复步骤](./docs/install.md#windows-从-github-版切换到-npm-版)。
+
+也可以从插件页面安装 GitHub 版（此方式需能访问 GitHub）：
+
+1. Harness 左侧 **插件** → **＋ 添加插件**，粘贴 `https://github.com/wisp-science/WispOps`。
 2. **安装源**：国内网络选 **中国大陆镜像源**，其他选 **npm 官方源**。
 3. 点击 **安装**，确认插件已启用。
 4. 完全退出并重新打开 Harness。
 
-升级：在运维面板的 **版本更新** 中检查并安装稳定 Release，也可开启自动更新；安装后重启 Harness。本地开发链接不会被覆盖。旧版可先卸载再重装，`~/.dsh-wisp-ops/` 数据不会删除。
+升级：GitHub 版可在运维面板的 **版本更新** 中检查并安装稳定 Release，也可开启自动更新；npm 版通过 Harness 插件管理或 CLI 更新，面板内更新目前仅支持 GitHub 来源。安装后重启 Harness。本地开发链接不会被覆盖。旧版可先卸载再重装，`~/.dsh-wisp-ops/` 数据不会删除。
 
 命令行安装、本地源码安装和常见报错见 [docs/install.md](./docs/install.md)。
 
@@ -62,6 +70,7 @@ DeepSeek Harness 的多主机服务器运维插件：服务器管理、独立加
 - [配置与 YAML 任务](./docs/config.md)
 - [通知、安全变更、设备同步与更新](./docs/operations.md)
 - [版本记录](./CHANGELOG.md)
+- [npm 发布配置与发版流程](./docs/publishing.md)
 
 ## 开发
 

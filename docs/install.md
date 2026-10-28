@@ -2,9 +2,9 @@
 
 [← 返回 README](../README.md)
 
-要求：DeepSeek Harness `0.2.1-rc.3` 及以上、`0.3.0` 以下；本机能访问 GitHub。**不需要** npm 上发布的包，**不需要** WispTerm，也**不需要**在本机构建（仓库已附带构建好的 `lib/`）。
+要求：DeepSeek Harness `0.2.1-rc.3` 及以上、`0.3.0` 以下。支持 npm 和 GitHub 两种来源；GitHub 安装方式需要本机能访问 GitHub。**不需要** WispTerm，也**不需要**在本机构建（npm 包和仓库均附带构建好的 `lib/`）。
 
-## 方式一：在 Harness 插件页面安装（推荐）
+## 方式一：在 Harness 插件页面安装 GitHub 版
 
 1. 打开 DeepSeek Harness，点击左侧 **插件**。
 2. 点击右上角 **＋ 添加插件**，在弹窗输入框中粘贴 GitHub 仓库地址：
@@ -13,7 +13,7 @@
    https://github.com/wisp-science/WispOps
    ```
 
-   只填这个地址。不要填 npm 包名，也不要把 npm 镜像地址填进这个输入框。
+   此方式填写仓库地址；npm 镜像地址应在下面的安装源中选择。
 3. 在输入框右下方的 **安装源** 中选择：
    - 国内网络：**中国大陆镜像源**（`registry.npmmirror.com`）；
    - 其他网络：**npm 官方源**（`registry.npmjs.org`）；
@@ -28,7 +28,7 @@
 
 ## 升级到新版本
 
-新版可在运维面板的 **版本更新** 中检查稳定 Release、安装或开启自动更新，见[更新说明](./operations.md#检查更新与自动更新)。对于旧版或不支持原位更新的环境，仍可重装：
+GitHub 版可在运维面板的 **版本更新** 中检查稳定 Release、安装或开启自动更新，见[更新说明](./operations.md#检查更新与自动更新)。面板内更新目前仅支持 GitHub 来源；npm 版应通过 Harness 插件管理或下面的 CLI 命令更新。对于旧版或不支持原位更新的环境，仍可重装：
 
 1. 在 **插件** 页面找到 WispOps，点击 **卸载**。之前从本地目录安装过的（`link:` 方式），同样要先卸载。
 2. 按上面的方式一重新粘贴 GitHub 地址并安装。
@@ -38,11 +38,64 @@
 
 ## 方式二：命令行安装
 
+安装 npm 版：
+
+```bash
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+```
+
+或安装 GitHub 版：
+
 ```bash
 dsh plugin --profile desktop add github:wisp-science/WispOps
 ```
 
 `desktop` 是桌面版的默认 profile；Web 版通常是 `web`。安装后重启 Harness。
+
+### Windows 从 GitHub 版切换到 npm 版
+
+两个来源使用相同的包名和安装目录。若日志显示：
+
+```text
+ERR_PNPM_EPERM ... rename '...\dsh-wisp-ops_tmp_<pid>_<n>' -> '...\dsh-wisp-ops'
+```
+
+说明 pnpm 已进入替换插件目录的阶段，Windows 拒绝了重命名。运行中的 Harness、目录监视、同时进行的安装、失败安装残留和目录权限都可能影响这一步。前面的 peer dependency 警告不等于本次失败原因。仅凭这条日志不能确定持锁进程；Harness 上游也有[同类目录占用报告](https://github.com/deepseek-ai/deepseek-harness/discussions/6674)和[失败安装残留报告](https://github.com/deepseek-ai/deepseek-harness/discussions/7673)。
+
+1. 保存工作并从托盘**完全退出 Harness**，结束其他安装操作；关闭只隐藏窗口时不会释放后台进程。
+2. 打开外部 PowerShell，工作目录放在用户目录中，再安装：
+
+   ```powershell
+   Set-Location $env:USERPROFILE
+   dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+   ```
+
+3. 成功后重新打开 Harness，确认 WispOps 启用、服务器和任务仍在。
+
+如果完全退出后仍是同一个重命名错误，可以先将**该插件目录和对应的临时目录**移到备份位置，再重试。以下命令需要 `dsh` 已在 PATH 中；备份放在 profile 的 `node_modules` 之外：
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    Get-Command dsh -ErrorAction Stop | Out-Null
+    Set-Location $env:USERPROFILE
+    $wispModules = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules'
+    $wispBackup = Join-Path $env:USERPROFILE ('.dsh\install-backups\wisp-ops-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+    New-Item -ItemType Directory -Path $wispBackup | Out-Null
+    Write-Host "插件目录备份位置：$wispBackup"
+    Get-ChildItem -LiteralPath $wispModules -Directory -Force |
+        Where-Object { $_.Name -eq 'dsh-wisp-ops' -or $_.Name -match '^dsh-wisp-ops_tmp_\d+_\d+$' } |
+        ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $wispBackup -ErrorAction Stop }
+    dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+    if ($LASTEXITCODE -ne 0) {
+        throw "安装未完成，请保留备份并检查新的错误：$wispBackup"
+    }
+}
+```
+
+如果 `Move-Item` 本身也报权限错误，先查找仍占用目录的进程或目录权限，停止重试安装。备份里的 `dsh-wisp-ops` 是移动前的目录；安装失败时保持 Harness 退出，检查新目录后再决定恢复，避免覆盖新的文件。不要把 `_tmp_*` 暂存目录当作已安装包直接改名使用。
+
+上述操作只涉及插件程序目录，服务器、密码库、任务和审计的默认数据目录 `%USERPROFILE%\.dsh-wisp-ops` 保持原位。无需删除整个 profile、`node_modules` 或 pnpm 全局 store。
 
 ## 方式三：从本地源码安装（开发用）
 
@@ -59,6 +112,7 @@ dsh plugin --profile desktop add "$(pwd)"
 
 | 现象 | 原因与处理 |
 |---|---|
+| Windows 从 GitHub 版改装 npm 版时报 `ERR_PNPM_EPERM ... rename ..._tmp_...` | 先完全退出 Harness，再从外部 PowerShell 安装；仍失败时按上面的 Windows 恢复步骤备份该插件目录后重试。 |
 | 更新时显示 **检查或安装失败**，并提示 `Disable Harness HMR and restart...` | 可在 **插件**页卸载 WispOps，再点击 **＋ 添加插件**，输入 `https://github.com/wisp-science/WispOps` 重新安装，完成后重启 Harness。 |
 | `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`，提示 `dsh-wisp-ops` 需要执行构建脚本 | 0.5.0 及更早版本从 GitHub 安装时需要在本机构建。0.5.1 起已附带构建产物，不再触发此错误。请确认安装的是最新 GitHub 地址；若仍报错，先卸载旧版再装。 |
 | 安装成功，但左侧没有 **服务器运维** | 没有重启 Harness，或插件处于停用状态。到插件页面启用后完全退出并重开。 |

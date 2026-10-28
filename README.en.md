@@ -6,14 +6,22 @@ Multi-host server operations for DeepSeek Harness: server management, an indepen
 
 ## Install
 
-Requires DeepSeek Harness `>=0.2.1-rc.3 <0.3.0` and access to GitHub.
+Requires DeepSeek Harness `>=0.2.1-rc.3 <0.3.0`. The package is available on npm and can be installed with the Harness CLI:
 
-1. In Harness open **Plugins** → **＋ Add plugin** and paste `https://github.com/wisp-science/WispOps`. Enter only this address, not an npm package name.
+```bash
+dsh plugin --profile desktop add dsh-wisp-ops@0.10.0
+```
+
+On Windows, quit Harness completely, including its tray process, before switching from a GitHub installation to npm. Run the command from an external PowerShell window and reopen Harness afterwards. For `EPERM rename`, see the [recovery steps](./docs/install.md#windows-从-github-版切换到-npm-版) (Chinese).
+
+You can also install the GitHub version through the plugin page (this method requires access to GitHub):
+
+1. In Harness open **Plugins** → **＋ Add plugin** and paste `https://github.com/wisp-science/WispOps`.
 2. **Install source**: pick the **China mainland mirror** on networks inside China, otherwise the **official npm registry**.
 3. Click **Install** and confirm the plugin is enabled.
 4. Quit Harness completely and reopen it.
 
-Upgrading: open **Updates** in the operations panel to check for and install the latest stable Release, or turn on automatic updates; restart Harness afterwards. Local development links are never overwritten. Older versions can be uninstalled and reinstalled; nothing under `~/.dsh-wisp-ops/` is deleted.
+Upgrading: GitHub installations can use **Updates** in the operations panel to check for and install the latest stable Release, or turn on automatic updates. Update npm installations through the Harness plugin manager or CLI; the panel updater currently supports only GitHub sources. Restart Harness afterwards. Local development links are never overwritten. Older versions can be uninstalled and reinstalled; nothing under `~/.dsh-wisp-ops/` is deleted.
 
 Command-line installation, installing from a local checkout and common errors are covered in [docs/install.md](./docs/install.md) (Chinese).
 
@@ -62,6 +70,7 @@ The vault is encrypted with XChaCha20-Poly1305; its key lives in the macOS Keych
 - [Configuration and YAML tasks](./docs/config.md) (Chinese)
 - [Notifications, safe changes, device sync and updates](./docs/operations.en.md)
 - [Changelog](./CHANGELOG.md)
+- [npm publishing setup and release process](./docs/publishing.md) (Chinese)
 
 ## Development
 
