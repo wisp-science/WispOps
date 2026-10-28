@@ -16,10 +16,10 @@ Install the [latest stable npm release](https://www.npmjs.com/package/dsh-wisp-o
 dsh plugin --profile desktop add dsh-wisp-ops@latest
 ```
 
-To install a specific version, such as `0.11.0`:
+To install a specific version, such as `0.12.0`:
 
 ```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.11.0
+dsh plugin --profile desktop add dsh-wisp-ops@0.12.0
 ```
 
 `desktop` is the default profile for the desktop app; web installations usually use `web`. Restart Harness after installation and confirm the plugin is enabled.

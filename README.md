@@ -16,10 +16,10 @@ DeepSeek Harness 的多主机服务器运维插件：服务器管理、独立加
 dsh plugin --profile desktop add dsh-wisp-ops@latest
 ```
 
-需要固定版本时，例如安装 `0.11.0`：
+需要固定版本时，例如安装 `0.12.0`：
 
 ```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.11.0
+dsh plugin --profile desktop add dsh-wisp-ops@0.12.0
 ```
 
 `desktop` 是桌面版的默认 profile；Web 版通常改为 `web`。安装完成后重启 Harness，确认插件已启用。

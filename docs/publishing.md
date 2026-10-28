@@ -6,7 +6,7 @@
 
 ## 当前发布状态
 
-[0.11.0 的 npm 页面](https://www.npmjs.com/package/dsh-wisp-ops/v/0.11.0)。稳定版发布到 `latest`，使用同版本 GitHub Release 的归档。该包已完成首次发布，无需再次执行首次发布流程；注册表中的实际版本可用下面的命令确认。
+[0.12.0 的 npm 页面](https://www.npmjs.com/package/dsh-wisp-ops/v/0.12.0)。稳定版发布到 `latest`，使用同版本 GitHub Release 的归档。该包已完成首次发布，无需再次执行首次发布流程；注册表中的实际版本可用下面的命令确认。
 
 当前仓库的 `.github/workflows/release.yml` 已包含 GitHub Release 和 npm 发布任务。推送 `v*` 标签后，先检查类型、测试、版本号及构建产物，再将同一份归档上传到两个平台。npm 任务使用 OIDC 可信发布并附带 provenance；运行前需在 npm 账号侧绑定下方列出的仓库和工作流。稳定版使用 `latest`，预发布版使用 `next`。
 
@@ -20,15 +20,15 @@ npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 
 正常流程由 GitHub Actions 自动发布。只有 npm 自动发布失败，且确认该版本尚未在注册表中出现时，才使用手动上传兜底；需要有权发布该包的 npm 账号，并完成 npm 要求的交互登录和双重验证。不要在自动发布仍运行时重复上传。
 
-下面以 `0.11.1` 为例；如果该版本已存在，改用下一个未发布版本：
+下面以 `0.12.1` 为例；如果该版本已存在，改用下一个未发布版本：
 
 1. 更新 `package.json` 和 `package-lock.json`：
 
    ```bash
-   npm version 0.11.1 --no-git-tag-version
+   npm version 0.12.1 --no-git-tag-version
    ```
 
-2. 将 `CHANGELOG.md` 的 Unreleased 内容移到 `## 0.11.1 — YYYY-MM-DD`，填写实际发版日期，保留空的 Unreleased 节。
+2. 将 `CHANGELOG.md` 的 Unreleased 内容移到 `## 0.12.1 — YYYY-MM-DD`，填写实际发版日期，保留空的 Unreleased 节。
 3. 安装依赖并完成检查：
 
    ```bash
@@ -43,9 +43,9 @@ npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 5. 创建标签并推送提交和该标签：
 
    ```bash
-   git tag v0.11.1
+   git tag v0.12.1
    git push origin main
-   git push origin v0.11.1
+   git push origin v0.12.1
    ```
 
 6. 在 GitHub Actions 的 **Release** 中确认 `release` 和 `publish-npm` 两个任务均成功，再按下方命令核对注册表。成功时无需在本地执行 `npm publish`。
@@ -54,11 +54,11 @@ npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 
    ```bash
    mkdir -p artifacts/packages
-   gh release download v0.11.1 --repo wisp-science/WispOps \
-     --pattern dsh-wisp-ops-0.11.1.tgz --dir artifacts/packages --clobber
+   gh release download v0.12.1 --repo wisp-science/WispOps \
+     --pattern dsh-wisp-ops-0.12.1.tgz --dir artifacts/packages --clobber
    npm login --registry=https://registry.npmjs.org
    npm whoami --registry=https://registry.npmjs.org
-   npm publish ./artifacts/packages/dsh-wisp-ops-0.11.1.tgz \
+   npm publish ./artifacts/packages/dsh-wisp-ops-0.12.1.tgz \
      --ignore-scripts --access public --tag latest --registry=https://registry.npmjs.org
    ```
 
@@ -71,7 +71,7 @@ npm view dsh-wisp-ops version dist-tags --registry=https://registry.npmjs.org
 以注册表中的实际版本为准：
 
 ```bash
-npm view dsh-wisp-ops@0.11.0 version dist-tags dist.integrity --json \
+npm view dsh-wisp-ops@0.12.0 version dist-tags dist.integrity --json \
   --prefer-online --registry=https://registry.npmjs.org
 ```
 
