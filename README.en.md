@@ -76,8 +76,9 @@ You can also write `~/.dsh-wisp-ops/inventory.yml` by hand; see [examples/invent
 | `ops_change` | Backup, change, verify and restore on failure for files, new files and directories; rolls out host by host and stops at the first failure |
 | `ops_exec` | Fleet commands run concurrently, risk-classified before they run |
 | `ops_hosts` / `ops_history` | Capability probes; the audit log, inspection history and disk/memory trends (audit kept by month, inspections by count) |
-| `ops_task` | Run a recurring task: the built-in collector plus the task's declared read-only commands, with the previous run for comparison |
+| `ops_task` | Run a recurring task: a built-in collector, read-only commands or a check script, with the previous run for comparison; `mode=last` reads a run the WispOps timer already recorded |
 | `ops_template_draft` | Submit a check-template draft for you to review and save in the panel; it cannot write the task library, link servers or enable schedules |
+| `ops_script_draft` | Submit a check-script draft for you to test, review and save in the panel; script tasks can run on the WispOps timer and wake the agent only when a run finds problems |
 
 Six skills are bundled: disk full, omics storage cleanup, security triage, daily reports, safe changes, and GPU/Slurm. See [docs/features.md](./docs/features.md).
 

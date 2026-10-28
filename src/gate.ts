@@ -79,7 +79,7 @@ export function planAction(tool: string, args: unknown, extraRead: ReadonlySet<s
       const commands = task.commands ?? []
       return {
         selector: task.targets,
-        command: `(task ${task.name}: built-in ${task.playbook} playbook${commands.length ? ` + ${commands.length} read-only command(s)` : ''})`,
+        command: `(task ${task.name}: ${task.playbook === 'script' ? `owner-reviewed check script "${task.script}"` : `built-in ${task.playbook} playbook`}${commands.length ? ` + ${commands.length} read-only command(s)` : ''})`,
         risk: READ,
         sudo: task.sudo === true,
         taskSudo: task.sudo === true,

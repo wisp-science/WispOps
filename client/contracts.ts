@@ -15,6 +15,12 @@ export interface Task {
   notify?: string[]; notifyOnlyProblems?: boolean; notifyOnChange?: boolean; quietHours?: QuietHours;
   name: string; template?: string; targets: string; hosts: string[]; playbook: string; instruction?: string; description?: string;
   paths?: string[]; days?: number; hours?: number; commands?: string[]; sudo?: boolean; editable: boolean;
+  /** Check script id for the `script` playbook; `report` decides whether the agent writes a report after a run. */
+  script?: string; report?: ReportMode;
+  /** Verdict and one-line summary of the latest recorded run. */
+  lastOutcome?: { at: string; verdict: string; summary: string };
+  /** Why the WispOps timer could not run or escalate the latest attempt. */
+  timerError?: string; pendingEscalation?: string;
   schedule?: { daily?: string; weekdays?: number[]; cron?: string; everyMinutes?: number; timeZone?: string };
   scheduled: { id: string; sessionId: string; scheduledAt: string }[];
   /** Latest recorded run, the slot it should have covered, and whether that slot was skipped. */
@@ -26,8 +32,15 @@ export interface TaskDraft {
   evidence: { host: string; summary: string; probeAt?: string; inspectionAt?: string }[]
   warnings: string[]
 }
+export type ReportMode = 'always' | 'problems' | 'never'
+/** Mirrors src/check-scripts.ts CheckScript; the panel edits and links it. */
+export interface CheckScript { id: string; title: string; description: string; content: string; sha256: string; timeoutSec: number; updatedAt: string }
+export interface ScriptDraft { id: string; createdAt: string; script: CheckScript }
+export interface ScriptTest { host: string; verdict: string; exitCode: number | null; summary: string; evidence: string; metrics?: Record<string, number>; durationMs: number }
 export interface Snapshot {
   notificationChannels?: string[];
+  scripts: { revision: string; entries: (CheckScript & { uses: number })[]; drafts: ScriptDraft[] };
+  timerAvailable?: boolean;
   revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; excludedHosts: string[]; tasks: Task[];
   templates: { revision: string; entries: (import('../src/task-template-content').TaskTemplate & { builtin: boolean; uses: number })[]; drafts: TemplateDraft[] };
   timeZone: string; schedulerAvailable: boolean; warnings: string[];

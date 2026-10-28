@@ -76,8 +76,9 @@ dsh plugin --profile desktop add github:wisp-science/WispOps
 | `ops_change` | 文件、新建文件和目录的备份、变更、验证和失败恢复；按组逐台滚动，首台失败即停 |
 | `ops_exec` | 批量命令：并发执行，执行前做风险分级 |
 | `ops_hosts` / `ops_history` | 能力探测；操作审计、巡检历史与磁盘/内存趋势（审计按月、巡检按条数自动保留） |
-| `ops_task` | 运行例行任务：内置采集器加任务声明的只读命令，附上一次结果供对比 |
+| `ops_task` | 运行例行任务：内置采集器、只读命令或检查脚本，附上一次结果供对比；`mode=last` 直接读取 WispOps 定时器已保存的结果 |
 | `ops_template_draft` | 提交检查模板草稿，由你在面板审核后保存；不能直接写任务库、关联服务器或启用调度 |
+| `ops_script_draft` | 提交检查脚本草稿，由你在面板测试、审核后保存；脚本任务可由 WispOps 定时器运行，只在异常时才唤醒 agent |
 
 另带 6 个技能：磁盘写满、生信存储清理、安全排查、定时汇报、安全变更、GPU/Slurm。详见 [docs/features.md](./docs/features.md)。
 

@@ -9,7 +9,10 @@ import type { Host } from './inventory.ts'
 import { managedStore, validatePolicy } from './managed.ts'
 import type { ManagedState, CredentialBinding } from './managed.ts'
 import type { OpsService } from './service.ts'
-import { scheduleRequest, SCHEDULE_TITLE_PREFIX, taskPrompt } from './tasks.ts'
+import { scheduleRequest, SCHEDULE_TITLE_PREFIX, summarizeRecord, taskPrompt } from './tasks.ts'
+import type { TaskRunRecord } from './tasks.ts'
+import { deniedScriptLine, parseScriptResult, scriptDraftStore, scriptStore, validateScript, MAX_SCRIPT_TIMEOUT_SEC } from './check-scripts.ts'
+import { TaskRunner, timerTask } from './runner.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { CredentialInput, LocalVault } from './vault.ts'
 import { listVault, wisptermConfigDir } from './wispterm.ts'
@@ -49,12 +52,16 @@ export class OpsManager {
   private readonly state
   private readonly library
   private readonly drafts
+  private readonly scripts
+  private readonly scriptDrafts
   private pending: Promise<unknown> = Promise.resolve()
   private readonly sync
-  constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates, private readonly agents?: AgentLookup) {
+  constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates, private readonly agents?: AgentLookup, private readonly runner?: TaskRunner) {
     this.state = managedStore(service.config.dataDir)
     this.library = templateStore(service.config.dataDir)
     this.drafts = templateDraftStore(service.config.dataDir)
+    this.scripts = scriptStore(service.config.dataDir)
+    this.scriptDrafts = scriptDraftStore(service.config.dataDir)
     this.sync = new OpsSync(service, vault, async () => (await this.scheduleRecords()).some(r => r.title.startsWith(SCHEDULE_TITLE_PREFIX) && r.status === 'active'))
   }
   /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups bypass the queue. */
@@ -133,6 +140,48 @@ export class OpsManager {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }))
       return { message: '已发送到对话。在对话中补充需求，agent 提交的草稿会出现在任务库的「待审核草稿」中。' }
     }
+    if (action === 'saveScript') {
+      const script = validateScript(request.script)
+      const denied = deniedScriptLine(script.content, this.denyPatterns())
+      if (denied !== undefined) throw new Error(`脚本被部署级 deny 规则（${denied.source}）拒绝：${denied.line}`)
+      await this.scripts.change(string(request, 'revision'), state => {
+        const exists = state.entries.some(e => e.id === script.id)
+        if (request.edit === true && !exists) throw new Error('脚本已被删除，请刷新后重试。')
+        if (request.edit !== true && exists) throw new Error('脚本标识已存在。')
+        state.entries = [...state.entries.filter(e => e.id !== script.id), script]
+        return state
+      })
+      if (typeof request.draftId === 'string') await this.discardScriptDraft(request.draftId).catch(() => {})
+      return { message: request.edit === true ? '脚本已更新，关联任务的下一次运行将使用新内容。' : '脚本已保存。可关联服务器并选择汇报方式。' }
+    }
+    if (action === 'deleteScript') {
+      const name = string(request, 'name')
+      const users = [...this.service.inventory.tasks.values()].filter(t => t.script === name).map(t => t.name)
+      if (users.length) throw new Error(`脚本仍被任务使用：${users.join('、')}。请先删除或修改这些任务。`)
+      await this.scripts.change(string(request, 'revision'), state => {
+        if (!state.entries.some(e => e.id === name)) throw new Error('脚本已不存在。')
+        state.entries = state.entries.filter(e => e.id !== name)
+        return state
+      })
+      return { message: '脚本已删除。' }
+    }
+    if (action === 'scriptDrafts') return { ids: (await this.scriptDrafts.read()).value.entries.map(d => d.id) }
+    if (action === 'discardScriptDraft') {
+      await this.discardScriptDraft(string(request, 'id'))
+      return { message: '草稿已丢弃。' }
+    }
+    if (action === 'testScript') {
+      // The owner tries unsaved content on one server, read-only and without sudo; the deny list still applies.
+      const name = string(request, 'host'), content = string(request, 'content')
+      const host = this.service.inventory.hosts.get(name)
+      if (!host) throw new Error('服务器不存在。')
+      const script = validateScript({ id: 'test', title: 'test', content, timeoutSec: request.timeoutSec })
+      const denied = deniedScriptLine(script.content, this.denyPatterns())
+      if (denied !== undefined) throw new Error(`脚本被部署级 deny 规则（${denied.source}）拒绝：${denied.line}`)
+      const [result] = await this.service.execute([host], script.content, { sudo: false, authorization: 'read-only', risk: 'read', tool: 'wispOps:testScript', timeoutMs: Math.min(script.timeoutSec, MAX_SCRIPT_TIMEOUT_SEC) * 1000, auditCommand: `(check script test sha256:${script.sha256.slice(0, 12)})` })
+      const outcome = parseScriptResult(result!)
+      return { host: name, verdict: outcome.verdict, exitCode: outcome.exitCode, summary: outcome.summary, evidence: outcome.evidence.slice(0, 4000), ...outcome.metrics === undefined ? {} : { metrics: outcome.metrics }, durationMs: result!.durationMs }
+    }
     if (action === 'deleteTemplate') {
       const name = string(request, 'name')
       await this.library.change(string(request, 'revision'), state => {
@@ -145,7 +194,7 @@ export class OpsManager {
     if (action === 'draftTask') {
       if (!Array.isArray(request.hosts) || !request.hosts.length || request.hosts.some(name => typeof name !== 'string' || !this.service.inventory.hosts.has(name))) throw new Error('请选择有效的服务器。')
       const hosts = this.service.select([...new Set(request.hosts as string[])].join(','))
-      if (!PLAYBOOKS.includes(request.playbook as Playbook)) throw new Error('请选择检查内容。')
+      if (!PLAYBOOKS.includes(request.playbook as Playbook) || request.playbook === 'script') throw new Error('请选择检查内容。')
       if (request.refreshProbe !== undefined && typeof request.refreshProbe !== 'boolean') throw new Error('探测选项无效。')
       const warnings: string[] = []
       if (request.refreshProbe === true) {
@@ -393,7 +442,7 @@ export class OpsManager {
         const commands = renderTemplateCommands(template, values)
         if (input.instruction !== undefined && typeof input.instruction !== 'string') throw new Error('报告要求格式不正确。')
         // Copy the trusted definition. Template changes never modify an existing task.
-        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours', 'notify', 'notifyOnlyProblems', 'notifyOnChange', 'quietHours'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
+        input = { ...template.definition, ...Object.fromEntries(['name', 'description', 'targets', 'schedule', 'sudo', 'paths', 'days', 'hours', 'notify', 'notifyOnlyProblems', 'notifyOnChange', 'quietHours', 'report'].filter(k => input[k] !== undefined).map(k => [k, input[k]])),
           template: template.id, instruction: instruction + (input.instruction ? `\n补充要求：${input.instruction}` : ''), ...commands.length ? { commands } : {} }
       } else if (request.edit !== true) {
         delete input.template
@@ -410,7 +459,8 @@ export class OpsManager {
       if (task.schedule?.timeZone) {
         try { new Intl.DateTimeFormat('en', { timeZone: task.schedule.timeZone }) } catch { throw new Error('时区无效，请使用 Asia/Shanghai 等 IANA 时区。') }
       }
-      if ((await this.scheduleRecords()).some(r => r.title === titleOf(task.name) && r.status === 'active')) throw new Error('请先停用此任务的调度，再编辑任务。')
+      if (task.playbook === 'script' && !(await this.scripts.read()).value.entries.some(e => e.id === task.script)) throw new Error('所选脚本已不存在，请刷新脚本库。')
+      if (await this.scheduleActive(task.name)) throw new Error('请先停用此任务的调度，再编辑任务。')
       await this.update(string(request, 'revision'), state => {
         state.tasks = [...state.tasks.filter(t => t.name !== task.name), task]
       })
@@ -419,15 +469,29 @@ export class OpsManager {
     if (action === 'deleteTask') {
       const name = string(request, 'name')
       if (!(await this.state.read()).value.tasks.some(t => t.name === name)) throw new Error('该任务由 YAML 配置管理，请在原配置中删除。')
-      if ((await this.scheduleRecords()).some(r => r.title === titleOf(name) && r.status === 'active')) throw new Error('请先停用此任务的所有调度。')
+      if (await this.scheduleActive(name)) throw new Error('请先停用此任务的所有调度。')
       await this.update(string(request, 'revision'), state => { state.tasks = state.tasks.filter(t => t.name !== name) })
       return { message: '任务已删除。' }
     }
     if (action === 'scheduleTask') {
+      const name = string(request, 'name')
+      if (typeof request.enabled !== 'boolean') throw new Error('调度状态无效。')
+      const timed = this.service.inventory.tasks.get(name)
+      if (timerTask(timed)) {
+        // Runs on the WispOps timer: no DSH schedule, no session wake-up unless a run found problems.
+        if (!this.runner) throw new Error('当前运行环境没有 WispOps 定时器。')
+        if (!request.enabled) { await this.runner.disable(name); return { message: '定时运行已停用。' } }
+        if (!timed.schedule) throw new Error('请先为任务设置运行时间。')
+        const sessionId = typeof request.sessionId === 'string' && request.sessionId ? request.sessionId : undefined
+        if (timed.report === 'problems' && sessionId === undefined) throw new Error('仅异常时汇报需要选择一个汇报会话。')
+        await this.assertAutomationReady(timed)
+        await this.runner.enable(name, sessionId)
+        const status = await this.runner.status(timed, (await this.service.store.readBounded<{ at: string }>('tasks', name)).at(-1)?.at)
+        return { message: timed.report === 'never' ? `定时运行已启用，结果只记录和通知，不唤醒 agent。${status?.nextAt ? `下次运行：${status.nextAt}` : ''}` : `定时运行已启用，发现异常时才通知所选会话的 agent。${status?.nextAt ? `下次运行：${status.nextAt}` : ''}` }
+      }
       const scheduler = this.scheduler()
       if (!scheduler) throw new Error('当前运行环境没有 DSH 调度服务，任务已保存，可用 /ops-run 手动运行。')
-      const name = string(request, 'name'), sessionId = string(request, 'sessionId')
-      if (typeof request.enabled !== 'boolean') throw new Error('调度状态无效。')
+      const sessionId = string(request, 'sessionId')
       const records = (await scheduler.catalog()).filter(r => r.title === titleOf(name) && r.sessionId === sessionId && r.status === 'active')
       if (!request.enabled) {
         for (const row of records) {
@@ -449,6 +513,13 @@ export class OpsManager {
       const task = this.service.inventory.tasks.get(name)
       if (!task) throw new Error('任务不存在，请刷新后重试。')
       await this.assertAutomationReady(task)
+      if (timerTask(task)) {
+        if (!this.runner) throw new Error('当前运行环境没有 WispOps 定时器。')
+        const outcome = await this.runner.run(task, task.report === 'problems' ? sessionId : undefined)
+        if (outcome.record === undefined) throw new Error(outcome.error ?? '运行失败。')
+        const { verdict, summary } = summarizeRecord(outcome.record)
+        return { message: `任务「${name}」已运行：${verdict}。${summary}${outcome.escalated ? '\n已通知所选会话的 agent 解读。' : outcome.error ? `\n${outcome.error}` : ''}`, record: outcome.record }
+      }
       const agent = this.agents?.(sessionId)
       if (!agent) throw new Error('所选会话当前未打开，请先打开该会话再运行。')
       agent.followup(createUserMessage({ content: [{ type: 'text', text: taskPrompt(task) }], source: { kind: 'user' } }))
@@ -458,6 +529,17 @@ export class OpsManager {
   }
   private async discardDraft(id: string): Promise<void> {
     await this.drafts.change((await this.drafts.read()).revision, state => ({ ...state, entries: state.entries.filter(d => d.id !== id) }))
+  }
+  private async discardScriptDraft(id: string): Promise<void> {
+    await this.scriptDrafts.change((await this.scriptDrafts.read()).revision, state => ({ ...state, entries: state.entries.filter(d => d.id !== id) }))
+  }
+  private denyPatterns(): RegExp[] {
+    return this.service.config.denyPatterns.map(source => new RegExp(source))
+  }
+  /** Enabled anywhere: a DSH schedule in any session, or the WispOps timer. */
+  private async scheduleActive(name: string): Promise<boolean> {
+    if ((await this.scheduleRecords()).some(r => r.title === titleOf(name) && r.status === 'active')) return true
+    return this.runner !== undefined && (await this.runner.entries())[name] !== undefined
   }
   /** Credentials and sudo policy a scheduled or immediate run would need, checked before anything is queued. */
   private async assertAutomationReady(task: TaskSpec): Promise<void> {
@@ -489,15 +571,20 @@ export class OpsManager {
       try { external = await listVault(expandHome(this.service.config.secrets.wisptermDir ?? wisptermConfigDir())) }
       catch { warnings.push('无法读取可选的 WispTerm 密码库，内置密码库仍可使用。') }
     }
+    const scripts = await this.scripts.read()
     const tasks = await Promise.all([...this.service.inventory.tasks.values()].map(async t => {
-      const active = scheduled.filter(r => r.title === titleOf(t.name) && r.status === 'active')
-      const lastRun = (await this.service.store.readBounded<{ at: string }>('tasks', t.name)).at(-1)?.at
+      const last = (await this.service.store.readBounded<TaskRunRecord>('tasks', t.name)).at(-1)
+      const lastRun = last?.at
+      const timer = timerTask(t) && this.runner ? await this.runner.status(t, lastRun) : undefined
+      // A timer task shows its timer as its one schedule, so the panel treats both kinds alike.
+      const active = timer !== undefined ? [{ id: 'wisp-ops-timer', title: titleOf(t.name), sessionId: timer.sessionId ?? '', scheduledAt: timer.nextAt ?? '', status: 'active' }] : scheduled.filter(r => r.title === titleOf(t.name) && r.status === 'active')
       // Only a task someone enabled can miss a slot; cron schedules are not evaluated.
       let missed: MissedRun = { missed: false }
       if (active.length && t.schedule) {
         try { missed = missedRun(t.schedule, this.service.config.timeZone, lastRun) } catch { missed = { missed: false } }
       }
-      return { ...t, hosts: this.service.inventory.select(t.targets).map(h => h.name), editable: state.value.tasks.some(m => m.name === t.name), scheduled: active, ...lastRun === undefined ? {} : { lastRun }, ...missed.dueAt === undefined ? {} : { dueAt: missed.dueAt }, missed: missed.missed }
+      const lastOutcome = last === undefined ? undefined : { at: last.at, ...summarizeRecord(last) }
+      return { ...t, hosts: this.service.inventory.select(t.targets).map(h => h.name), editable: state.value.tasks.some(m => m.name === t.name), scheduled: active, ...lastRun === undefined ? {} : { lastRun }, ...missed.dueAt === undefined ? {} : { dueAt: missed.dueAt }, missed: missed.missed, ...lastOutcome === undefined ? {} : { lastOutcome }, ...timer?.lastError === undefined ? {} : { timerError: timer.lastError }, ...timer?.pendingEscalation === undefined ? {} : { pendingEscalation: timer.pendingEscalation } }
     }))
     const reference = (ref: string | undefined) => {
       if (!ref) return null
@@ -509,7 +596,8 @@ export class OpsManager {
     const hosts = [...this.service.inventory.hosts.values()].map(h => ({ ...h, editable: state.value.hosts.some(m => m.name === h.name), credentials: { login: reference(h.loginSecret), sudo: reference(h.sudoSecret) }, tasks: tasks.filter(t => t.hosts.includes(h.name)).map(t => t.name), probe: probes[h.name] ?? null }))
     const drafts = (await this.drafts.read()).value.entries
     const templates = { revision: library.revision, drafts, entries: [...builtinTemplates(this.service.config), ...library.value.entries].map(t => ({ ...t, builtin: t.id.startsWith('builtin.'), uses: tasks.filter(task => task.template === t.id).length })) }
-    return { revision: state.revision, vault, hosts, excludedHosts: state.value.excludedHosts, tasks, templates, notificationChannels: Object.keys(this.service.config.notifications), timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, warnings }
+    const scriptLibrary = { revision: scripts.revision, drafts: (await this.scriptDrafts.read()).value.entries, entries: scripts.value.entries.map(e => ({ ...e, uses: tasks.filter(task => task.script === e.id).length })) }
+    return { revision: state.revision, vault, hosts, excludedHosts: state.value.excludedHosts, tasks, templates, scripts: scriptLibrary, notificationChannels: Object.keys(this.service.config.notifications), timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, timerAvailable: this.runner !== undefined, warnings }
   }
 }
 
@@ -519,7 +607,9 @@ export class OpsManagement extends TypertRemoteService {
     super(ctx, 'wispOps')
     const updates = new OpsUpdates(options.service.config.dataDir, () => ctx.get('pluginManager') as UpdateHost | undefined, () => ctx.get('hmr') !== undefined)
     const agents = () => ctx.get('agents') as { get(id: unknown): { followup(message: unknown): void } | undefined } | undefined
-    this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined, updates, id => agents()?.get(id))
+    const runner = new TaskRunner(options.service, id => agents()?.get(id))
+    this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined, updates, id => agents()?.get(id), runner)
+    ctx.effect(() => runner.start())
     ctx.effect(() => {
       const tick = () => { void updates.dispatch('updateTick').catch(() => {}) }
       const timer = setInterval(tick, 15 * 60_000)

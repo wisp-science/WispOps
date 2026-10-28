@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { OpsService } from './service.ts';
+import { TaskRunner } from './runner.ts';
 import type { LocalVault } from './vault.ts';
 import { OpsUpdates } from './updates.ts';
 export interface ScheduledRecord {
@@ -36,12 +37,15 @@ export declare class OpsManager {
     private readonly scheduler;
     private readonly updates?;
     private readonly agents?;
+    private readonly runner?;
     private readonly state;
     private readonly library;
     private readonly drafts;
+    private readonly scripts;
+    private readonly scriptDrafts;
     private pending;
     private readonly sync;
-    constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined);
+    constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined, runner?: TaskRunner | undefined);
     /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups bypass the queue. */
     dispatch(value: unknown): Promise<unknown>;
     /** Owner-initiated capability probe of a few servers, read-only and without sudo; results join the saved probes. */
@@ -52,6 +56,10 @@ export declare class OpsManager {
     private update;
     private handle;
     private discardDraft;
+    private discardScriptDraft;
+    private denyPatterns;
+    /** Enabled anywhere: a DSH schedule in any session, or the WispOps timer. */
+    private scheduleActive;
     /** Credentials and sudo policy a scheduled or immediate run would need, checked before anything is queued. */
     private assertAutomationReady;
     /** Recent inspection history for every host: read-only, bounded, no command output. */

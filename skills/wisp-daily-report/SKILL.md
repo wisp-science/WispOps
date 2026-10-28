@@ -5,7 +5,7 @@ description: Write the report for a scheduled WispOps task (morning server repor
 
 # Scheduled task reports
 
-A scheduled delivery says `[WispOps scheduled task "<name>"]`. Call `ops_task name=<name>`; it returns the data, the user's instruction for this task, and the previous run.
+A scheduled delivery says `[WispOps scheduled task "<name>"]`. Call `ops_task name=<name>`; it returns the data, the user's instruction for this task, and the previous run. If the delivery says WispOps already ran the task on its timer, call `ops_task name=<name> mode=last` instead: it returns the evidence that run recorded, so the servers are not contacted a second time.
 
 - **Language**: the user's (Chinese if the instruction is Chinese).
 - **First line**: overall status with an emoji-free marker — `正常` / `需要关注` / `紧急` — plus host count and the single most important fact.

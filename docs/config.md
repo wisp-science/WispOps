@@ -78,6 +78,17 @@ tasks:
       - journalctl -u nginx -p err --since -24h --no-pager | tail -n 50
     schedule: { daily: "08:30" }
 ```
+- `playbook: script` 运行面板“检查脚本”库里由你审阅保存的脚本（`script: <脚本标识>`）。脚本通过 stdin 以 `sh -s` 发送到每台目标服务器，不逐行做风险分类，只受 `denyPatterns` 约束；按退出码判定结果（0 正常、1 警告、2 严重、其他为脚本失败），stdout 第一行为摘要，可选 `WISPOPS-JSON: {"key": 数值}` 行记录指标。脚本保存在 `dataDir/check-scripts.json`。
+- `report`：谁来写报告。`always`（默认）由 DSH 调度在到点时唤醒 agent 采集并汇报；`problems` 与 `never` 由 WispOps 自己的定时器运行任务、记录并通知，不消耗模型 token——`problems` 只在出现警告、严重、失败或不可达时把一条提示送入所选会话，agent 用 `ops_task mode=last` 读取已保存的证据再写报告；`never` 只记录和通知。这两种模式支持 `daily`/`weekdays`/`everyMinutes`，不支持 `cron`；没有 `commands` 的 `custom` 任务只能用 `always`。
+
+```yaml
+  - name: gpu-idle
+    targets: "@gpu"
+    playbook: script
+    script: gpu-idle               # 面板“检查脚本”中的标识
+    report: problems               # 正常运行不唤醒 agent
+    schedule: { everyMinutes: 30 }
+```
 - 调度：`daily`（可加 `weekdays` 变成每周）、`cron`、`everyMinutes`，时区默认取本机时区。
 - 在 Web 会话里执行 `/ops-schedule all`，插件通过 DSH 官方调度服务创建提醒（DSH 的“自动化任务”页面里能看到）。到点后原会话被唤醒，agent 调用 `ops_task` 拿到数据、你的指令和上一次的结果，然后写汇报。DSH 需要保持运行。
 - `/ops-run <任务>` 立即执行一次，`/ops-tasks` 查看任务，`/ops-unschedule` 取消调度。

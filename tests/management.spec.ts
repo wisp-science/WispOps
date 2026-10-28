@@ -15,6 +15,7 @@ import { LocalVault, routeSecrets } from '../src/vault.ts'
 import { noSecrets } from '../src/secrets.ts'
 import { managedStore, validateManaged } from '../src/managed.ts'
 import { addTemplateDraft, builtinTemplates } from '../src/task-library.ts'
+import { TaskRunner } from '../src/runner.ts'
 
 let dir: string, vault: LocalVault, service: OpsService, manager: OpsManager, records: ScheduledRecord[], scheduler: Scheduler
 const key = vi.fn(async (_dir: string, _create: boolean) => new Uint8Array(32).fill(7))
@@ -768,5 +769,79 @@ describe('onboarding and audit', () => {
     expect(view.missed).toBe(Date.now() - Date.parse(view.dueAt) > 30 * 60_000)
     await local.store.appendBounded('tasks', 'morning', { at: new Date().toISOString(), hosts: ['a'], playbook: 'inspect', counts: {}, excerpt: '' }, 90)
     expect((await localManager.dispatch({ action: 'snapshot' }) as any).tasks[0]).toMatchObject({ missed: false, lastRun: expect.any(String) })
+  })
+})
+
+describe('check scripts and the WispOps timer', () => {
+  const script = { id: 'load', title: '负载检查', description: '负载超过核数时告警', content: 'uptime\nexit 0\n' }
+  const saveScript = async (value: Record<string, unknown> = script, extra: Record<string, unknown> = {}) => manager.dispatch({ action: 'saveScript', script: value, revision: (await snap()).scripts.revision, ...extra })
+  const saveScriptTask = async (extra: Record<string, unknown> = {}) => manager.dispatch({ action: 'saveTask', revision: await revision(), task: { name: 'load-check', targets: 'a', playbook: 'script', script: 'load', report: 'problems', schedule: { everyMinutes: 30 }, ...extra } })
+  const result = (host: string, over = {}) => ({ host, status: 'ok' as const, exitCode: 0, stdout: 'fine\n', stderr: '', truncated: false, durationMs: 3, ...over })
+  it('saves, tests, lists and deletes owner-reviewed scripts, refusing deny-listed lines and scripts in use', async () => {
+    expect(await saveScript()).toMatchObject({ message: expect.stringContaining('已保存') })
+    let view = await snap()
+    expect(view.scripts.entries).toHaveLength(1)
+    expect(view.scripts.entries[0]).toMatchObject({ id: 'load', title: '负载检查', uses: 0, timeoutSec: 120 })
+    expect(view.scripts.entries[0].sha256).toHaveLength(64)
+    await expect(saveScript()).rejects.toThrow('已存在')
+    await expect(saveScript({ ...script, content: 'cat /etc/shadow\nrm -rf /tmp/x' }, { edit: true })).resolves.toBeTruthy()
+    await expect(manager.dispatch({ action: 'saveScript', script: { ...script, id: 'bad' }, revision: 'stale' })).rejects.toThrow('刷新')
+    const execute = vi.spyOn(service, 'execute').mockResolvedValue([result('a', { status: 'failed', exitCode: 1, stdout: 'load 9.5\nprocs 300\nWISPOPS-JSON: {"load1": 9.5}\n' })])
+    expect(await manager.dispatch({ action: 'testScript', host: 'a', content: 'uptime' })).toMatchObject({ host: 'a', verdict: 'warn', summary: 'load 9.5', evidence: 'procs 300', metrics: { load1: 9.5 } })
+    expect(execute.mock.calls[0]![2]).toMatchObject({ sudo: false, authorization: 'read-only', tool: 'wispOps:testScript' })
+    await expect(manager.dispatch({ action: 'testScript', host: 'nope', content: 'uptime' })).rejects.toThrow('不存在')
+    await saveScriptTask()
+    view = await snap()
+    expect(view.scripts.entries[0].uses).toBe(1)
+    expect(view.tasks.find((t: any) => t.name === 'load-check')).toMatchObject({ playbook: 'script', script: 'load', report: 'problems', scheduled: [] })
+    await expect(manager.dispatch({ action: 'deleteScript', name: 'load', revision: view.scripts.revision })).rejects.toThrow('load-check')
+    await manager.dispatch({ action: 'deleteTask', name: 'load-check', revision: await revision() })
+    await manager.dispatch({ action: 'deleteScript', name: 'load', revision: (await snap()).scripts.revision })
+    expect((await snap()).scripts.entries).toHaveLength(0)
+    await expect(saveScriptTask()).rejects.toThrow('脚本已不存在')
+  })
+  it('rejects deny-listed scripts and task definitions the timer cannot run', async () => {
+    const config = resolveConfig({ dataDir: dir, inventoryFile: join(dir, 'inventory.yml'), denyPatterns: ['secret-file'], hosts: [{ name: 'a' }] })
+    const strict = new OpsManager(new OpsService(config, await Inventory.load(config), routeSecrets(vault, noSecrets)), vault, () => scheduler)
+    await expect(strict.dispatch({ action: 'saveScript', script: { ...script, content: 'df\ncat /etc/secret-file' }, revision: (await snap()).scripts.revision })).rejects.toThrow('deny')
+    await expect(strict.dispatch({ action: 'testScript', host: 'a', content: 'cat /etc/secret-file' })).rejects.toThrow('deny')
+    await saveScript()
+    await expect(saveScriptTask({ schedule: { cron: '0 8 * * *' } })).rejects.toThrow('cron')
+    await expect(saveScriptTask({ playbook: 'inspect' })).rejects.toThrow('script playbook')
+    await expect(saveScriptTask({ playbook: 'custom', script: undefined, instruction: 'x', report: 'never' })).rejects.toThrow('read-only commands')
+    await expect(saveScriptTask({ script: 'missing' })).rejects.toThrow('脚本已不存在')
+    // Agent-reported tasks keep their validation and may use any playbook with commands.
+    await saveScriptTask({ playbook: 'custom', script: undefined, instruction: 'x', commands: ['uptime'], report: 'never' })
+  })
+  it('enables timer tasks without the DSH scheduler, runs them on demand in the plugin, and blocks edits while enabled', async () => {
+    await saveScript()
+    await saveScriptTask()
+    const agent = { followup: vi.fn() }
+    const timed = new OpsManager(service, vault, () => undefined, undefined, id => id === 'live' ? agent : undefined, new TaskRunner(service, id => id === 'live' ? agent : undefined))
+    await expect(timed.dispatch({ action: 'scheduleTask', name: 'load-check', sessionId: '', enabled: true })).rejects.toThrow('汇报会话')
+    expect(await timed.dispatch({ action: 'scheduleTask', name: 'load-check', sessionId: 'live', enabled: true })).toMatchObject({ message: expect.stringContaining('发现异常时') })
+    expect(scheduler.create).not.toHaveBeenCalled()
+    let view = await timed.dispatch({ action: 'snapshot' }) as any
+    const task = view.tasks.find((t: any) => t.name === 'load-check')
+    expect(task.scheduled).toEqual([{ id: 'wisp-ops-timer', title: 'WispOps: load-check', sessionId: 'live', scheduledAt: expect.any(String), status: 'active' }])
+    expect(view.timerAvailable).toBe(true)
+    await expect(timed.dispatch({ action: 'saveTask', edit: true, revision: await revision(), task: service.inventory.tasks.get('load-check') })).rejects.toThrow('停用')
+    await expect(timed.dispatch({ action: 'deleteTask', name: 'load-check', revision: await revision() })).rejects.toThrow('停用')
+    // Run once stays inside the plugin: a green run reports back, nothing reaches the agent.
+    const execute = vi.spyOn(service, 'execute').mockResolvedValue([result('a')])
+    expect(await timed.dispatch({ action: 'runTaskNow', name: 'load-check', sessionId: 'live' })).toMatchObject({ message: expect.stringContaining('a: ok — fine') })
+    expect(agent.followup).not.toHaveBeenCalled()
+    expect(execute.mock.calls[0]![2]).toMatchObject({ authorization: 'task', tool: 'ops_task:load-check' })
+    view = await timed.dispatch({ action: 'snapshot' }) as any
+    expect(view.tasks.find((t: any) => t.name === 'load-check').lastOutcome).toMatchObject({ verdict: 'ok', summary: 'a: ok — fine' })
+    // A run with problems escalates to the chosen session with the read-only prompt.
+    execute.mockResolvedValue([result('a', { status: 'failed', exitCode: 2, stdout: 'load 40\n' })])
+    expect(await timed.dispatch({ action: 'runTaskNow', name: 'load-check', sessionId: 'live' })).toMatchObject({ message: expect.stringContaining('已通知') })
+    expect(agent.followup).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(agent.followup.mock.calls[0]![0])).toContain('mode=\\"last\\"')
+    expect(await timed.dispatch({ action: 'scheduleTask', name: 'load-check', sessionId: 'live', enabled: false })).toMatchObject({ message: expect.stringContaining('停用') })
+    expect((await timed.dispatch({ action: 'snapshot' }) as any).tasks.find((t: any) => t.name === 'load-check').scheduled).toEqual([])
+    // Without a timer in the environment the panel is told so instead of silently enabling nothing.
+    await expect(manager.dispatch({ action: 'scheduleTask', name: 'load-check', sessionId: 'live', enabled: true })).rejects.toThrow('定时器')
   })
 })

@@ -79,3 +79,32 @@ export function missedRun(schedule: TaskSchedule, defaultZone: string, lastRun: 
   const covered = lastRun !== undefined && Number.isFinite(Date.parse(lastRun)) && Date.parse(lastRun) >= due - 5 * 60_000
   return { dueAt: new Date(due).toISOString(), missed: !covered && now - due > MISSED_GRACE_MS }
 }
+
+/**
+ * Whether the WispOps timer should run a task now. Daily and weekly slots count from the
+ * moment the timer was enabled, so enabling after today's slot waits for tomorrow's; an
+ * interval counts from the later of the last run and enabling. Cron is never due here.
+ */
+export function dueNow(schedule: TaskSchedule, defaultZone: string, lastRun: string | undefined, enabledAt: string, now = Date.now()): boolean {
+  const last = lastRun !== undefined && Number.isFinite(Date.parse(lastRun)) ? Date.parse(lastRun) : undefined
+  const enabled = Number.isFinite(Date.parse(enabledAt)) ? Date.parse(enabledAt) : now
+  if (schedule.everyMinutes !== undefined) return now >= Math.max(last ?? 0, enabled) + schedule.everyMinutes * 60_000
+  const due = previousDue(schedule, defaultZone, now)
+  if (due === undefined || due < enabled) return false
+  return last === undefined || last < due - 5 * 60_000
+}
+
+/** The next instant the WispOps timer would run a task, for the panel; undefined for cron. */
+export function nextDue(schedule: TaskSchedule, defaultZone: string, lastRun: string | undefined, enabledAt: string, now = Date.now()): number | undefined {
+  const last = lastRun !== undefined && Number.isFinite(Date.parse(lastRun)) ? Date.parse(lastRun) : undefined
+  const enabled = Number.isFinite(Date.parse(enabledAt)) ? Date.parse(enabledAt) : now
+  if (schedule.everyMinutes !== undefined) return Math.max(now, Math.max(last ?? 0, enabled) + schedule.everyMinutes * 60_000)
+  if (schedule.daily === undefined) return undefined
+  if (dueNow(schedule, defaultZone, lastRun, enabledAt, now)) return now
+  // The earliest slot after now: probe forward one day at a time and take the first strictly later slot.
+  for (let ahead = 1; ahead <= 8; ahead++) {
+    const candidate = previousDue(schedule, defaultZone, now + ahead * 86_400_000)
+    if (candidate !== undefined && candidate > now) return candidate
+  }
+  return undefined
+}

@@ -41,8 +41,15 @@ export interface HostSpec {
     sudoSecret?: string;
 }
 /** Built-in read-only analyses a task can run. */
-export type Playbook = 'inspect' | 'disk' | 'new-files' | 'security' | 'custom';
+export type Playbook = 'inspect' | 'disk' | 'new-files' | 'security' | 'custom' | 'script';
 export declare const PLAYBOOKS: readonly Playbook[];
+/**
+ * Who writes the report after a run. `always` is a DSH schedule that wakes the agent every
+ * time; `problems` and `never` run inside WispOps on its own timer, record and notify
+ * without the model, and `problems` queues the agent only when a run found something.
+ */
+export type ReportMode = 'always' | 'problems' | 'never';
+export declare const REPORT_MODES: readonly ReportMode[];
 /** When a task runs; one of daily, weekly (daily + weekdays), cron, or everyMinutes. */
 export interface TaskSchedule {
     /** Local time `HH:MM`; with `weekdays` it runs weekly. */
@@ -93,6 +100,10 @@ export interface TaskSpec {
      * command must classify as read-only at load time; anything else is rejected.
      */
     commands?: string[];
+    /** Check script from the owner-reviewed script library; required by the `script` playbook. */
+    script?: string;
+    /** Default `always`: the agent writes a report after every run. */
+    report?: ReportMode;
     /**
      * Run the built-in collector as root. Writing this in the human-managed
      * inventory pre-authorizes sudo for this task's read-only collector, so an

@@ -50,9 +50,16 @@ export interface HostSpec {
 }
 
 /** Built-in read-only analyses a task can run. */
-export type Playbook = 'inspect' | 'disk' | 'new-files' | 'security' | 'custom'
+export type Playbook = 'inspect' | 'disk' | 'new-files' | 'security' | 'custom' | 'script'
 
-export const PLAYBOOKS: readonly Playbook[] = ['inspect', 'disk', 'new-files', 'security', 'custom']
+export const PLAYBOOKS: readonly Playbook[] = ['inspect', 'disk', 'new-files', 'security', 'custom', 'script']
+/**
+ * Who writes the report after a run. `always` is a DSH schedule that wakes the agent every
+ * time; `problems` and `never` run inside WispOps on its own timer, record and notify
+ * without the model, and `problems` queues the agent only when a run found something.
+ */
+export type ReportMode = 'always' | 'problems' | 'never'
+export const REPORT_MODES: readonly ReportMode[] = ['always', 'problems', 'never']
 
 /** When a task runs; one of daily, weekly (daily + weekdays), cron, or everyMinutes. */
 export interface TaskSchedule {
@@ -106,6 +113,10 @@ export interface TaskSpec {
    * command must classify as read-only at load time; anything else is rejected.
    */
   commands?: string[]
+  /** Check script from the owner-reviewed script library; required by the `script` playbook. */
+  script?: string
+  /** Default `always`: the agent writes a report after every run. */
+  report?: ReportMode
   /**
    * Run the built-in collector as root. Writing this in the human-managed
    * inventory pre-authorizes sudo for this task's read-only collector, so an
@@ -306,7 +317,7 @@ export const Task: z<TaskSpec> = z.object({
   template: z.string().pattern(NAME),
   description: z.string(),
   targets: z.string().required(),
-  playbook: z.union(['inspect', 'disk', 'new-files', 'security', 'custom'] as const).required(),
+  playbook: z.union(['inspect', 'disk', 'new-files', 'security', 'custom', 'script'] as const).required(),
   instruction: z.string(),
   schedule: z.object({
     daily: z.string().pattern(HHMM),
@@ -319,6 +330,8 @@ export const Task: z<TaskSpec> = z.object({
   days: z.natural().min(1),
   hours: z.natural().min(1),
   commands: z.array(z.string().max(2000)).max(MAX_TASK_COMMANDS),
+  script: z.string().pattern(NAME),
+  report: z.union(['always', 'problems', 'never'] as const),
   sudo: z.boolean(),
 })
 

@@ -113,6 +113,13 @@ export class Inventory {
       if (task.playbook === 'custom' && (task.instruction === undefined || task.instruction.trim().length === 0)) {
         throw new Error(`task "${task.name}" uses the custom playbook and needs an instruction`)
       }
+      if (task.playbook === 'script' && task.script === undefined) throw new Error(`task "${task.name}" uses the script playbook and needs a script id`)
+      if (task.playbook !== 'script' && task.script !== undefined) throw new Error(`task "${task.name}" names a script but does not use the script playbook`)
+      if (task.report !== undefined && task.report !== 'always') {
+        // Without a collector or commands the model is the only thing that gathers evidence.
+        if (task.playbook === 'custom' && (task.commands === undefined || task.commands.length === 0)) throw new Error(`task "${task.name}" needs read-only commands or a built-in playbook before report "${task.report}" can run without the agent`)
+        if (task.schedule?.cron !== undefined) throw new Error(`task "${task.name}" report "${task.report}" runs on the WispOps timer, which takes daily, weekly or interval schedules, not cron`)
+      }
       // Commands run unattended under the task's authorization, so only commands the classifier
       // proves read-only are accepted; everything else must go through ops_exec and its approval.
       for (const command of task.commands ?? []) {

@@ -31,3 +31,11 @@ export interface MissedRun {
  * cron schedules are not evaluated and never report a miss.
  */
 export declare function missedRun(schedule: TaskSchedule, defaultZone: string, lastRun: string | undefined, now?: number): MissedRun;
+/**
+ * Whether the WispOps timer should run a task now. Daily and weekly slots count from the
+ * moment the timer was enabled, so enabling after today's slot waits for tomorrow's; an
+ * interval counts from the later of the last run and enabling. Cron is never due here.
+ */
+export declare function dueNow(schedule: TaskSchedule, defaultZone: string, lastRun: string | undefined, enabledAt: string, now?: number): boolean;
+/** The next instant the WispOps timer would run a task, for the panel; undefined for cron. */
+export declare function nextDue(schedule: TaskSchedule, defaultZone: string, lastRun: string | undefined, enabledAt: string, now?: number): number | undefined;

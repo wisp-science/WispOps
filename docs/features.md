@@ -14,6 +14,8 @@
 - **历史 `ops_history`**：按月操作审计、巡检历史；`kind=trends` 输出磁盘和可用内存的文本趋势。审计按 `retention.auditMonths` 保留，巡检历史每台保留 `retention.inspectionRecords` 条。
 - **任务只读命令**：任务和模板可声明 `commands`，由内置采集器在每台关联服务器上执行并随数据交给模型，`custom` 任务不再依赖模型自行采集；命令在保存和加载时按 `ops_exec` 的分类器校验为只读，否则拒绝。
 - **安全变更 `ops_change`**：已有文件、新建文件和目录的强制备份、变更、验证和失败恢复；按组逐台滚动，首台失败即停；备份按天保留，`ops_history kind=changes` 列出。
+- **检查脚本与定时器**：面板“检查脚本”保存你审阅过的 shell 脚本，`playbook: script` 任务在关联服务器上以 `sh -s` 运行它，按退出码（0/1/2）和 stdout 首行摘要判定结果。任务的 `report` 决定谁写报告：`always` 仍由 DSH 调度唤醒 agent；`problems` 和 `never` 由 WispOps 定时器运行、记录并通知，正常运行不消耗 token，`problems` 仅在异常时让 agent 用 `ops_task mode=last` 读取已保存的证据写报告。
+- **脚本草稿 `ops_script_draft`**：agent 按与你确认的需求提交检查脚本草稿，出现在面板“检查脚本”的“待审核草稿”中，由你测试、审核并保存；不写脚本库、不关联服务器、不运行。
 - **模板草稿 `ops_template_draft`**：按与你确认的需求提交检查模板草稿，出现在面板任务库的“待审核草稿”中，由你审核保存；不写任务库、不关联服务器、不启用调度、不授予 sudo。
 - **通知、设备同步和更新**：外部 webhook 摘要通知、坚果云 WebDAV 加密快照、中英文面板，以及稳定 Release 检查与可选自动安装，见[操作指南](./operations.md)。
 

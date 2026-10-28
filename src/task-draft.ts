@@ -13,7 +13,7 @@ export interface DraftEvidence {
 export interface TaskDraft { task: TaskSpec; evidence: DraftEvidence[]; warnings: string[] }
 export interface HostObservation { host: Host; probe?: HostProbe; history?: HistoryRecord }
 
-const labels: Record<Playbook, string> = { inspect: '健康巡查', security: '安全巡查', disk: '磁盘巡查', 'new-files': '新增文件巡查', custom: '综合巡查' }
+const labels: Record<Playbook, string> = { inspect: '健康巡查', security: '安全巡查', disk: '磁盘巡查', 'new-files': '新增文件巡查', custom: '综合巡查', script: '脚本检查' }
 const DATA_MOUNT = /^\/(?:data|home|mnt|srv|work|scratch|share)(?:\/|$)/
 const SAFE_MOUNT = /^\/[^\x00-\x1f\x7f]*$/
 const DAY = 86_400_000

@@ -336,3 +336,57 @@ describe('dsh-wisp-ops plugin', () => {
     expect(text(r)).toContain('/ops-allow')
   })
 })
+
+describe('check scripts through the tools', () => {
+  afterEach(async () => {
+    harness.ctx.registry.delete(plugin)
+    await rm(harness.dataDir, { recursive: true, force: true })
+  })
+  it('runs an owner-saved script on every target, reads the stored run back, and refuses deny-listed scripts', async () => {
+    harness = await mount({ denyPatterns: ['secret-file'], tasks: [
+      { name: 'load', targets: 'web-01,web-02', playbook: 'script', script: 'load', report: 'problems', schedule: { everyMinutes: 30 } },
+      { name: 'denied', targets: 'web-01', playbook: 'script', script: 'denied', report: 'never' },
+    ] })
+    const { scriptStore, validateScript } = await import('../src/check-scripts.ts')
+    const store = scriptStore(harness.dataDir)
+    await store.change((await store.read()).revision, state => ({ ...state, entries: [
+      validateScript({ id: 'load', title: 'Load', content: 'echo "load ok on $FAKE_HOST"\necho "procs 42"\necho \'WISPOPS-JSON: {"procs": 42}\'\n[ "$FAKE_HOST" = web-02 ] && exit 1\nexit 0\n' }),
+      validateScript({ id: 'denied', title: 'Denied', content: 'cat /etc/secret-file' }),
+    ] }))
+    expect(text(await harness.call('ops_task', { name: 'load', mode: 'last' }))).toContain('no recorded run yet')
+    const r = await harness.call('ops_task', { name: 'load' })
+    expect(r.isError).toBe(false)
+    expect(text(r)).toContain('- web-01: ok — load ok on web-01 {procs=42}')
+    expect(text(r)).toContain('- web-02: warn — load ok on web-02 {procs=42}')
+    expect(text(r)).toContain('### web-02 (warn, exit 1)\nprocs 42')
+    expect(harness.approval).not.toHaveBeenCalled()
+    const record = JSON.parse(await readFile(join(harness.dataDir, 'tasks', 'load.jsonl'), 'utf8'))
+    expect(record).toMatchObject({ playbook: 'script', counts: { ok: 1, warn: 1 }, outcomes: [{ host: 'web-01', verdict: 'ok', metrics: { procs: 42 } }, { host: 'web-02', verdict: 'warn' }] })
+    const audit = (await readFile(join(harness.dataDir, 'audit', `${new Date().toISOString().slice(0, 7)}.jsonl`), 'utf8')).trim().split('\n').map(l => JSON.parse(l))
+    expect(audit.map(a => a.command)).toEqual(expect.arrayContaining([expect.stringContaining('(check script load sha256:')]))
+    expect(audit.some(a => a.command.includes('echo'))).toBe(false)
+    // mode=last replays the stored record: no connection, same evidence.
+    const before = (await touched(harness)).length
+    const last = await harness.call('ops_task', { name: 'load', mode: 'last' })
+    expect(last.isError).toBe(false)
+    expect(text(last)).toContain('web-02: warn')
+    expect(text(last)).toContain('Recorded run')
+    expect((await touched(harness)).length).toBe(before)
+    expect(text(await harness.call('ops_task', {}))).toContain('load: script "load" on web-01,web-02, every 30 min, runs on the WispOps timer and reports only problems')
+    const denied = await harness.call('ops_task', { name: 'denied' })
+    expect(denied.isError).toBe(true)
+    expect(text(denied)).toContain('deny list')
+  })
+  it('submits script drafts for review without saving or running anything', async () => {
+    harness = await mount()
+    const r = await harness.call('ops_script_draft', { id: 'gpu-idle', title: 'GPU idle', description: 'warn when idle', content: 'nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader\nexit 0', timeoutSec: 30 })
+    expect(r.isError).toBe(false)
+    expect(text(r)).toContain('Drafts to review')
+    const drafts = JSON.parse(await readFile(join(harness.dataDir, 'check-script-drafts.json'), 'utf8'))
+    expect(drafts.entries[0].script).toMatchObject({ id: 'gpu-idle', timeoutSec: 30 })
+    await expect(readFile(join(harness.dataDir, 'check-scripts.json'), 'utf8')).rejects.toThrow()
+    expect((await harness.call('ops_script_draft', { id: 'bad id', title: 't', description: '', content: 'x' })).isError).toBe(true)
+    expect(await touched(harness)).toEqual([])
+    expect(harness.approval).not.toHaveBeenCalled()
+  })
+})

@@ -1,12 +1,17 @@
 import { tr } from './i18n'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import type { Api, Snapshot, Task, TaskDraft } from './contracts'
+import type { Api, CheckScript, ReportMode, Snapshot, Task, TaskDraft } from './contracts'
 import { renderTemplate } from '../src/task-template-content'
 import type { TaskTemplate } from '../src/task-template-content'
 import { PanelIcon } from './panel-icon'
 
 const getPlaybooks = (): Record<string, string> => ({ inspect: tr("health.inspection"), disk: tr("disk.diagnosis"), 'new-files': tr("recent.files"), security: tr("security.triage"), custom: tr("combined.custom.checks") })
+const getReportModes = (): { value: ReportMode; title: string; hint: string }[] => [
+  { value: 'always', title: tr("report.mode.always"), hint: tr("report.mode.always.hint") },
+  { value: 'problems', title: tr("report.mode.problems"), hint: tr("report.mode.problems.hint") },
+  { value: 'never', title: tr("report.mode.never"), hint: tr("report.mode.never.hint") },
+]
 const getWeekdays = () => [tr("mon"), tr("tue"), tr("wed"), tr("thu"), tr("fri"), tr("sat"), tr("sun")]
 function Field({ title, children, hint }: { title: string; children: ReactNode; hint?: string }) {
   return <label className="wo-field"><span>{title}</span>{children}{hint && <small>{hint}</small>}</label>
@@ -19,16 +24,19 @@ function TaskToggle({ title, hint, checked, onChange, disabled }: { title: strin
   </label>
 }
 
-export function TaskForm({ data, task, template, fixedHost, api, submit, busy }: {
-  data: Snapshot; task?: Task; template?: TaskTemplate; fixedHost?: string; api: Api
+export function TaskForm({ data, task, template, script, fixedHost, api, submit, busy }: {
+  data: Snapshot; task?: Task; template?: TaskTemplate; script?: CheckScript; fixedHost?: string; api: Api
   submit: (value: Record<string, unknown>, parameters?: Record<string, string>) => Promise<void>; busy: boolean
 }) {
   const defaults = task ?? template?.definition
+  // Editing a script task keeps its script; a new one comes from the script library card.
+  const linkedScript = script ?? (task?.playbook === 'script' ? data.scripts.entries.find(e => e.id === task.script) : undefined)
   const [parameters, setParameters] = useState<Record<string, string>>(Object.fromEntries(template?.parameters.map(p => [p.key, p.defaultValue ?? '']) ?? []))
   const nameTouched = useRef(false)
   function proposedName(names: string[]) {
-    if (!template) return ''
-    const base = `${names[0] ?? 'task'}-${template.id.replace(/^builtin\./, '')}`.slice(0, 92)
+    const source = template?.id.replace(/^builtin\./, '') ?? script?.id
+    if (source === undefined) return ''
+    const base = `${names[0] ?? 'task'}-${source}`.slice(0, 92)
     let name = base, n = 2
     while (data.tasks.some(t => t.name === name)) name = `${base}-${n++}`
     return name
@@ -42,11 +50,12 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
   const [quiet, setQuiet] = useState({ enabled: !!task?.quietHours, start: task?.quietHours?.start ?? '22:00', end: task?.quietHours?.end ?? '08:00' })
   const notificationChannels = data.notificationChannels ?? []
   const notificationsId = useId()
-  const [playbook, setPlaybook] = useState(defaults?.playbook ?? 'inspect')
+  const [playbook, setPlaybook] = useState(linkedScript ? 'script' : defaults?.playbook ?? 'inspect')
+  const [report, setReport] = useState<ReportMode>(task?.report ?? (linkedScript ? 'problems' : 'always'))
   const [frequency, setFrequency] = useState(task && !task.schedule ? 'manual' : defaults?.schedule?.everyMinutes ? 'interval' : defaults?.schedule?.cron ? 'cron' : defaults?.schedule?.weekdays?.length ? 'weekly' : 'daily')
   const [days, setDays] = useState(defaults?.schedule?.weekdays ?? [1, 2, 3, 4, 5])
   const [fields, setFields] = useState({
-    name: task?.name ?? proposedName(selected), description: task?.description ?? template?.title ?? '', instruction: task?.instruction ?? '',
+    name: task?.name ?? proposedName(selected), description: task?.description ?? template?.title ?? script?.title ?? '', instruction: task?.instruction ?? '',
     paths: defaults?.paths?.join(', ') ?? (defaults?.playbook === 'new-files' ? '/var/log' : '/'), lookbackDays: defaults?.days ?? 1, hours: defaults?.hours ?? 24,
     time: defaults?.schedule?.daily ?? '08:30', interval: defaults?.schedule?.everyMinutes ?? 60,
     cron: defaults?.schedule?.cron ?? '0 8 * * *', zone: defaults?.schedule?.timeZone ?? data.timeZone, sudo: task?.sudo ?? false,
@@ -60,11 +69,11 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const disabled = busy || generating
   // The template and edit flows describe the task first and link servers last; a fresh custom task needs its servers before rules can be generated.
-  const steps: ('info' | 'servers')[] = fixedHost ? ['info'] : template || task ? ['info', 'servers'] : ['servers', 'info']
+  const steps: ('info' | 'servers')[] = fixedHost ? ['info'] : template || task || linkedScript ? ['info', 'servers'] : ['servers', 'info']
   const [stepIndex, setStepIndex] = useState(0)
   const step = steps[stepIndex]
   const lastStep = stepIndex === steps.length - 1
-  const daysMissing = frequency === 'weekly' && !days.length
+  const daysMissing = (frequency === 'weekly' && !days.length) || (report !== 'always' && frequency === 'cron')
   const set = <K extends keyof typeof fields>(key: K, value: typeof fields[K]) => setFields(previous => ({ ...previous, [key]: value }))
   function invalidateDraft() {
     if (draft) {
@@ -75,7 +84,7 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
   }
   function changeSelection(names: string[]) {
     setSelected(names); invalidateDraft()
-    if (template && !nameTouched.current) set('name', proposedName(names))
+    if ((template || script) && !nameTouched.current) set('name', proposedName(names))
   }
   async function generate() {
     if (disabled || !selected.length) return
@@ -101,8 +110,11 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
     if (!lastStep) { setStepIndex(stepIndex + 1); return }
     const schedule = frequency === 'manual' ? undefined : { timeZone: fields.zone, ...(frequency === 'interval' ? { everyMinutes: fields.interval } : frequency === 'cron' ? { cron: fields.cron } : { daily: fields.time, ...(frequency === 'weekly' ? { weekdays: days } : {}) }) }
     const commands = fields.commands.split('\n').map(s => s.trim()).filter(Boolean)
+    // Without a collector or commands only the agent can gather evidence, so the timer modes are not offered.
+    const timerPossible = playbook !== 'custom' || commands.length > 0 || !!template?.definition.commands?.length
     void submit({
       name: fields.name, description: fields.description, targets: selected.join(','), playbook, instruction: fields.instruction, ...(schedule ? { schedule } : {}), sudo: fields.sudo,
+      ...(linkedScript ? { script: linkedScript.id } : {}), report: timerPossible ? report : 'always',
       // A template's commands are copied by the server from the template itself.
       ...(!template && commands.length ? { commands } : {}),
       notify, notifyOnlyProblems, notifyOnChange,
@@ -125,7 +137,7 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
         </fieldset>
       </div>}
       {step === 'info' && <>
-      {template ? <><div className="wo-template-context"><strong>{template.title}</strong><p>{template.description}</p><small>{tr("rules.are.ready.specify.the.check")}</small></div>{template.parameters.map(p => <Field key={p.key} title={p.label} hint={p.hint}><textarea value={parameters[p.key] ?? ''} onChange={e => setParameters(previous => ({ ...previous, [p.key]: e.target.value }))} required={p.required} maxLength={4000} rows={2}/></Field>)}<details className="wo-template-preview"><summary>{tr("view.preset.inspection.rules")}</summary><p>{renderTemplate(template, parameters, false)}</p></details></> : <><Field title={tr("checks")}><select value={playbook} onChange={e => { setPlaybook(e.target.value); invalidateDraft(); if (e.target.value === 'new-files' && fields.paths === '/') set('paths', '/var/log') }}>{Object.entries(getPlaybooks()).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
+      {linkedScript ? <div className="wo-template-context"><strong>{linkedScript.title}</strong><p>{linkedScript.description || tr("script.no.description")}</p><small className="wo-mono">{linkedScript.id} · sha256 {linkedScript.sha256.slice(0, 12)} · {tr("script.timeout.summary", { p0: linkedScript.timeoutSec })}</small></div> : template ? <><div className="wo-template-context"><strong>{template.title}</strong><p>{template.description}</p><small>{tr("rules.are.ready.specify.the.check")}</small></div>{template.parameters.map(p => <Field key={p.key} title={p.label} hint={p.hint}><textarea value={parameters[p.key] ?? ''} onChange={e => setParameters(previous => ({ ...previous, [p.key]: e.target.value }))} required={p.required} maxLength={4000} rows={2}/></Field>)}<details className="wo-template-preview"><summary>{tr("view.preset.inspection.rules")}</summary><p>{renderTemplate(template, parameters, false)}</p></details></> : <><Field title={tr("checks")}><select value={playbook} onChange={e => { setPlaybook(e.target.value); invalidateDraft(); if (e.target.value === 'new-files' && fields.paths === '/') set('paths', '/var/log') }}>{Object.entries(getPlaybooks()).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
       <div className="wo-generator">
         <strong>{tr("generate.inspection.rules")}</strong>
         <p>{tr("fill.the.task.name.checks.and")}</p>
@@ -138,11 +150,19 @@ export function TaskForm({ data, task, template, fixedHost, api, submit, busy }:
         <Field title={tr("task.name")} hint={tr("generate.or.enter.a.unique.identifier")}><input value={fields.name} onChange={e => { nameTouched.current = true; set('name', e.target.value) }} readOnly={!!task} required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={100}/></Field>
         <Field title={tr("display.title")}><input value={fields.description} onChange={e => set('description', e.target.value)} placeholder={tr("daily.inspection.of.the.hong.kong")}/></Field>
       </div>
-      <Field title={template ? tr("additional.requirements.optional") : tr("report.requirements")} hint={tr("add.metrics.to.focus.on.and")}><textarea value={fields.instruction} onChange={e => set('instruction', e.target.value)} required={!template && playbook === 'custom'} rows={draft ? 8 : 3} placeholder={template ? tr("for.example.describe.only.abnormal.findings") : tr("use.generate.inspection.rules.above.to")}/></Field>
-      {template ? !!template.definition.commands?.length && <details className="wo-template-preview"><summary>{tr("commands.count", { p0: template.definition.commands.length })}</summary><pre className="wo-command-list">{template.definition.commands.join('\n')}</pre></details> : <Field title={tr("read.only.commands")} hint={tr("read.only.commands.hint")}><textarea className="wo-mono" value={fields.commands} onChange={e => set('commands', e.target.value)} rows={3} placeholder={'systemctl is-active nginx\ndf -h /data'} spellCheck={false}/></Field>}
+      <Field title={template || linkedScript ? tr("additional.requirements.optional") : tr("report.requirements")} hint={linkedScript ? tr("script.requirements.hint") : tr("add.metrics.to.focus.on.and")}><textarea value={fields.instruction} onChange={e => set('instruction', e.target.value)} required={!template && playbook === 'custom'} rows={draft ? 8 : 3} placeholder={template || linkedScript ? tr("for.example.describe.only.abnormal.findings") : tr("use.generate.inspection.rules.above.to")}/></Field>
+      {linkedScript ? <details className="wo-template-preview"><summary>{tr("script.view.content")}</summary><pre className="wo-command-list">{linkedScript.content}</pre></details> : template ? !!template.definition.commands?.length && <details className="wo-template-preview"><summary>{tr("commands.count", { p0: template.definition.commands.length })}</summary><pre className="wo-command-list">{template.definition.commands.join('\n')}</pre></details> : <Field title={tr("read.only.commands")} hint={tr("read.only.commands.hint")}><textarea className="wo-mono" value={fields.commands} onChange={e => set('commands', e.target.value)} rows={3} placeholder={'systemctl is-active nginx\ndf -h /data'} spellCheck={false}/></Field>}
       {['disk', 'new-files'].includes(playbook) && <Field title={tr("scan.paths")} hint={tr("absolute.paths.separated.by.commas")}><input value={fields.paths} onChange={e => set('paths', e.target.value)} required/></Field>}
       {playbook === 'new-files' && <Field title={tr("look.back.days")}><input type="number" min="1" value={fields.lookbackDays} onChange={e => set('lookbackDays', Number(e.target.value))} required/></Field>}
       {playbook === 'security' && <Field title={tr("look.back.hours")}><input type="number" min="1" value={fields.hours} onChange={e => set('hours', Number(e.target.value))} required/></Field>}
+      {(() => {
+        const timerPossible = playbook !== 'custom' || fields.commands.trim().length > 0 || !!template?.definition.commands?.length
+        return <fieldset className="wo-report-modes"><legend>{tr("report.mode")}</legend>
+          {getReportModes().map(mode => <label key={mode.value} className={`wo-report-mode${report === mode.value ? ' is-selected' : ''}${!timerPossible && mode.value !== 'always' ? ' is-disabled' : ''}`}><input type="radio" name="wo-report-mode" value={mode.value} checked={report === mode.value} disabled={!timerPossible && mode.value !== 'always'} onChange={() => setReport(mode.value)}/><span><strong>{mode.title}</strong><small>{mode.hint}</small></span></label>)}
+          {!timerPossible && <small className="wo-report-note">{tr("report.mode.custom.note")}</small>}
+          {report !== 'always' && frequency === 'cron' && <small className="wo-report-note wo-field-warn">{tr("report.mode.cron.note")}</small>}
+        </fieldset>
+      })()}
       <div className="wo-form-grid">
         <Field title={tr("frequency")}><select value={frequency} onChange={e => setFrequency(e.target.value)}><option value="manual">{tr("manual.only")}</option><option value="daily">{tr("daily")}</option><option value="weekly">{tr("weekly.2")}</option><option value="interval">{tr("fixed.interval")}</option><option value="cron">{tr("cron.expression")}</option></select></Field>
         {frequency === 'manual' ? <p className="wo-muted wo-manual-hint">{tr("no.run.time.only.run.once")}</p> : frequency === 'interval' ? <Field title={tr("interval.minutes")}><input type="number" min="1" value={fields.interval} onChange={e => set('interval', Number(e.target.value))} required/></Field> : frequency === 'cron' ? <Field title={tr("five.field.cron")}><input value={fields.cron} onChange={e => set('cron', e.target.value)} required/></Field> : <Field title={tr("run.time")}><input type="time" value={fields.time} onChange={e => set('time', e.target.value)} required/></Field>}
