@@ -87,6 +87,7 @@
     "ai.draft.ready": "agent 提交的模板草稿已就绪，请在任务库的「待审核草稿」中审核。",
     "link.task": "关联任务",
     "server.list": "服务器列表",
+    "server.details": "服务器详情",
     "tasks": " 个任务",
     "add.your.first.server": "添加第一台服务器",
     "existing.yaml.inventories.are.also.supported": "也支持读取已有 YAML 清单。",

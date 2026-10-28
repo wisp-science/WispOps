@@ -87,6 +87,7 @@
     "ai.draft.ready": "The agent's template draft is ready under Task library → Drafts to review.",
     "link.task": "Link task",
     "server.list": "Server list",
+    "server.details": "SERVER DETAILS",
     "tasks": " tasks",
     "add.your.first.server": "Add your first server",
     "existing.yaml.inventories.are.also.supported": "Existing YAML inventories are also supported.",

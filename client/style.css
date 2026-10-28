@@ -324,3 +324,29 @@
 @container(max-width:650px){.wo-toolbar{grid-template-columns:1fr}.wo-toolbar-actions{justify-content:flex-end;flex-wrap:wrap}.wo-quiet-hours{grid-template-columns:auto minmax(0,1fr)}}
 
 .wo-removed-hosts{list-style:none;margin:0;padding:0;max-height:50vh;overflow:auto}.wo-removed-hosts li{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--wo-line)}.wo-removed-hosts strong{min-width:0;overflow-wrap:anywhere}.wo-removed-hosts button{flex-shrink:0}
+
+/* Narrow panes such as the session sidebar: pill tabs, toolbar buttons that fill their row, and one view at a time for the server list and details. */
+.wo-host-back{display:none}
+@container(max-width:650px){.wo-toolbar{margin:14px 0}
+.wo-toolbar-actions{display:flex;flex-wrap:wrap;gap:8px}
+.wo-toolbar-actions>button{flex:1 1 auto;min-width:0}
+.wo-hosts{max-height:none;overflow:visible}
+.wo-host-layout.is-detail .wo-hosts{display:none}
+.wo-host-layout:not(.is-detail) .wo-detail{display:none}
+.is-host-detail .wo-toolbar{display:none}
+.wo-host-row.selected:not(.current){background:var(--wo-bg)!important;box-shadow:none}
+.wo-host-row.selected:not(.current):hover{background:var(--wo-panel)!important}
+.wo-host-row.selected:not(.current) .wo-host-symbol{background:var(--wo-panel);color:#67748b}
+.wo-detail{border:0;border-radius:0;padding:0}
+.wo-host-back{display:flex;position:sticky;top:0;z-index:1;margin:0 0 12px;padding:6px 0;background:var(--wo-bg);border-bottom:1px solid var(--wo-line)}
+.wo-root .wo-host-back button{display:inline-flex;align-items:center;gap:3px;padding:4px 0;font-size:12px;font-weight:600}
+.wo-host-back svg{flex-shrink:0;margin-left:-3px}
+.wo-detail h2{margin-top:4px}}
+
+@container(max-width:650px){.wo-tabs{flex-wrap:wrap;gap:6px;border-bottom:0;padding:2px 0 0;margin-bottom:14px}
+.wo-root .wo-tabs button{padding:4px 10px;border:1px solid var(--wo-line);border-radius:999px;background:var(--wo-bg);color:var(--wo-text);font-size:12px;line-height:1.5;flex-shrink:0}
+.wo-root .wo-tabs button:hover{background:var(--wo-panel)}
+.wo-root .wo-tabs button.active{background:var(--wo-tint);border-color:var(--wo-accent);color:var(--wo-accent);font-weight:600}
+.wo-tabs button.active:after{display:none}
+.wo-tabs button span{margin-left:5px;padding:0 5px}
+.wo-tabs button.active span{background:var(--wo-bg)}}
