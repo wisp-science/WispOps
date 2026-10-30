@@ -204,6 +204,10 @@ export interface ThresholdsSpec {
   zombieWarn: number
   /** Disk growth since the previous inspection that is reported, in percentage points. */
   diskGrowthWarnPts: number
+  /** SSH login slower than this is a warning; 0 disables the check. */
+  loginWarnMs: number
+  /** TCP retransmit share during the inspection sample that is a warning; 0 disables the check. */
+  tcpRetransWarnPct: number
 }
 
 export interface ProtectSpec {
@@ -415,6 +419,8 @@ export const Config: z<Config> = z.object({
     gpuTempWarnC: z.number().default(85),
     zombieWarn: z.natural().default(10),
     diskGrowthWarnPts: z.number().default(5),
+    loginWarnMs: z.natural().default(3000),
+    tcpRetransWarnPct: z.number().default(5),
   }).default(defaultThresholds()),
   retention: z.object({
     inspectionRecords: z.natural().min(10).default(1000),
@@ -437,6 +443,8 @@ function defaultThresholds(): ThresholdsSpec {
     gpuTempWarnC: 85,
     zombieWarn: 10,
     diskGrowthWarnPts: 5,
+    loginWarnMs: 3000,
+    tcpRetransWarnPct: 5,
   }
 }
 

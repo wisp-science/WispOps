@@ -1,8 +1,9 @@
 /**
  * Fleet inspection (巡检): one read-only round trip per host collects
  * load, CPU, memory, disks, inodes, failed units, top processes, GPUs,
- * Slurm state, kernel errors and OOM kills; thresholds turn them into
- * findings, and the previous inspection supplies growth trends.
+ * Slurm state, kernel errors, OOM kills and network traffic; the runner
+ * adds the login latency. Thresholds turn them into findings, and the
+ * previous inspection supplies growth trends.
  * @module dsh-wisp-ops/collectors/inspect
  */
 
@@ -28,7 +29,13 @@ fi
 echo @@meminfo
 grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null
 echo @@cpu
-head -n 1 /proc/stat 2>/dev/null; sleep 1; head -n 1 /proc/stat 2>/dev/null
+head -n 1 /proc/stat 2>/dev/null; n0=$(cat /proc/net/dev 2>/dev/null); t0=$(grep '^Tcp:' /proc/net/snmp 2>/dev/null); sleep 1; head -n 1 /proc/stat 2>/dev/null
+echo @@netdev
+printf '%s\n' "$n0"; echo --; cat /proc/net/dev 2>/dev/null
+echo @@netphys
+for i in /sys/class/net/*; do [ -e "$i/device" ] && echo "$i"; done 2>/dev/null
+echo @@tcp
+printf '%s\n' "$t0"; grep '^Tcp:' /proc/net/snmp 2>/dev/null
 echo @@df
 d=$(df -PkT -x tmpfs -x devtmpfs -x overlay -x squashfs -x efivarfs 2>/dev/null); [ "$(printf '%s\n' "$d" | wc -l)" -ge 2 ] || d=$(df -Pk 2>/dev/null); printf '%s\n' "$d"
 echo @@dfi
@@ -87,7 +94,20 @@ export interface SlurmState {
   readonly jobs: Record<string, number>
 }
 
+/** Traffic over the one-second sample; rates are bytes per second. */
+export interface NetworkSample {
+  /** Totals over interfaces backed by a device, or every interface but `lo` when none is. */
+  readonly rxBps: number
+  readonly txBps: number
+  readonly interfaces: { readonly name: string; readonly rxBps: number; readonly txBps: number }[]
+  readonly tcpEstablished?: number
+  /** Retransmitted share of TCP segments sent during the sample; absent when too few were sent to tell. */
+  readonly tcpRetransPct?: number
+}
+
 export interface HostInspection {
+  /** Milliseconds from starting ssh until the remote shell answered, measured locally. */
+  readonly loginMs?: number
   readonly hostname?: string
   readonly os?: string
   readonly kernel?: string
@@ -109,6 +129,7 @@ export interface HostInspection {
   readonly kernelErrorSamples: string[]
   readonly rebootRequired?: boolean
   readonly ntpSynced?: boolean
+  readonly net?: NetworkSample
 }
 
 /** Compact metrics kept per inspection for trends. */
@@ -118,7 +139,15 @@ export interface InspectionMetrics {
   readonly memAvailPct?: number
   readonly load1?: number
   readonly cpuPct?: number
+  readonly loginMs?: number
+  readonly rxBps?: number
+  readonly txBps?: number
+  readonly tcpEstablished?: number
+  readonly tcpRetransPct?: number
 }
+
+/** Fewer TCP segments sent in the sample than this make a retransmit share meaningless. */
+const MIN_RETRANS_SAMPLE = 100
 
 const IGNORED_MOUNT = /^\/(?:proc|sys|dev|run|snap)(?:\/|$)|^\/boot\/efi$/
 const IGNORED_FS_TYPE = new Set(['tmpfs', 'devtmpfs', 'overlay', 'squashfs', 'efivarfs', 'proc', 'sysfs', 'nsfs', 'autofs'])
@@ -142,6 +171,56 @@ function cpuBusyPct(lines: readonly string[]): number | undefined {
   const dt = total(b) - total(a)
   if (dt <= 0) return undefined
   return Math.round(((dt - (idle(b) - idle(a))) / dt) * 1000) / 10
+}
+
+/** Receive and transmit byte counters per interface from /proc/net/dev. */
+function netCounters(lines: readonly string[]): Map<string, { rx: number; tx: number }> {
+  const counters = new Map<string, { rx: number; tx: number }>()
+  for (const line of lines) {
+    const m = /^\s*([^\s:|]+):\s*(.*)$/.exec(line)
+    if (m === null) continue
+    const fields = (m[2] as string).trim().split(/\s+/).map(Number)
+    if (fields.length >= 9 && Number.isFinite(fields[0]) && Number.isFinite(fields[8])) counters.set(m[1] as string, { rx: fields[0] as number, tx: fields[8] as number })
+  }
+  return counters
+}
+
+/** The `Tcp:` header/value line pairs of /proc/net/snmp, in sample order. */
+function tcpSamples(lines: readonly string[]): Map<string, number>[] {
+  const samples: Map<string, number>[] = []
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const names = (lines[i] as string).split(/\s+/).slice(1)
+    const values = (lines[i + 1] as string).split(/\s+/).slice(1)
+    if (names.length === 0 || names.some(n => /^-?\d+$/.test(n)) || values.some(v => !/^-?\d+$/.test(v))) continue
+    samples.push(new Map(names.map((name, j) => [name, Number(values[j])])))
+    i++
+  }
+  return samples
+}
+
+function parseNetwork(dev: readonly string[], physical: readonly string[], tcp: readonly string[]): NetworkSample | undefined {
+  const split = dev.indexOf('--')
+  const before = netCounters(split === -1 ? [] : dev.slice(0, split))
+  const after = netCounters(split === -1 ? [] : dev.slice(split + 1))
+  const rate = (a: number, b: number) => Math.max(0, b - a)
+  const interfaces = [...after].flatMap(([name, b]) => {
+    const a = before.get(name)
+    return a === undefined ? [] : [{ name, rxBps: rate(a.rx, b.rx), txBps: rate(a.tx, b.tx) }]
+  })
+  const [t0, t1] = tcpSamples(tcp)
+  if (interfaces.length === 0 && t1 === undefined) return undefined
+  const devices = new Set(physical.map(path => path.slice(path.lastIndexOf('/') + 1)))
+  const counted = interfaces.some(i => devices.has(i.name)) ? interfaces.filter(i => devices.has(i.name)) : interfaces.filter(i => i.name !== 'lo')
+  const established = t1?.get('CurrEstab')
+  const sent = t0 && t1 ? (t1.get('OutSegs') ?? 0) - (t0.get('OutSegs') ?? 0) : 0
+  const retrans = t0 && t1 ? (t1.get('RetransSegs') ?? 0) - (t0.get('RetransSegs') ?? 0) : 0
+  return {
+    rxBps: counted.reduce((sum, i) => sum + i.rxBps, 0),
+    txBps: counted.reduce((sum, i) => sum + i.txBps, 0),
+    interfaces: interfaces.filter(i => i.name !== 'lo').sort((a, b) => b.rxBps + b.txBps - a.rxBps - a.txBps).slice(0, 8),
+    ...established === undefined || !Number.isFinite(established) ? {} : { tcpEstablished: established },
+    ...sent >= MIN_RETRANS_SAMPLE && retrans >= 0 ? { tcpRetransPct: Math.round((retrans / sent) * 1000) / 10 } : {},
+  }
 }
 
 function countStates(lines: readonly string[]): Record<string, number> {
@@ -237,6 +316,7 @@ export function parseInspection(output: string): HostInspection {
       }
 
   const ntp = kv.get('ntp')
+  const net = parseNetwork(s.get('netdev') ?? [], s.get('netphys') ?? [], s.get('tcp') ?? [])
   return {
     ...nonEmpty('hostname') === undefined ? {} : { hostname: nonEmpty('hostname') },
     ...nonEmpty('os') === undefined ? {} : { os: nonEmpty('os') },
@@ -259,6 +339,7 @@ export function parseInspection(output: string): HostInspection {
     kernelErrorSamples: s.get('kerr') ?? [],
     ...kv.has('reboot_required') ? { rebootRequired: kv.get('reboot_required') === 'yes' } : {},
     ...ntp === 'yes' || ntp === 'no' ? { ntpSynced: ntp === 'yes' } : {},
+    ...net === undefined ? {} : { net },
   }
 }
 
@@ -270,6 +351,10 @@ export function metricsOf(report: HostInspection, at: Date): InspectionMetrics {
     ...report.mem === undefined ? {} : { memAvailPct: report.mem.availPct },
     ...report.load === undefined ? {} : { load1: report.load.m1 },
     ...report.cpuPct === undefined ? {} : { cpuPct: report.cpuPct },
+    ...report.loginMs === undefined ? {} : { loginMs: report.loginMs },
+    ...report.net === undefined ? {} : { rxBps: report.net.rxBps, txBps: report.net.txBps },
+    ...report.net?.tcpEstablished === undefined ? {} : { tcpEstablished: report.net.tcpEstablished },
+    ...report.net?.tcpRetransPct === undefined ? {} : { tcpRetransPct: report.net.tcpRetransPct },
   }
 }
 
@@ -317,6 +402,8 @@ export function evaluate(report: HostInspection, t: ThresholdsSpec, previous?: I
     const listed = report.slurm.problemNodes.slice(0, 10).map(n => `${n.node} ${n.state}${n.reason ? ` (${n.reason})` : ''}`)
     add('warn', 'slurm-nodes', `Slurm nodes need attention: ${listed.join('; ')}${report.slurm.problemNodes.length > 10 ? ' …' : ''}`)
   }
+  if (t.loginWarnMs > 0 && report.loginMs !== undefined && report.loginMs >= t.loginWarnMs) add('warn', 'login-slow', `SSH login took ${(report.loginMs / 1000).toFixed(1)} s`)
+  if (t.tcpRetransWarnPct > 0 && report.net?.tcpRetransPct !== undefined && report.net.tcpRetransPct >= t.tcpRetransWarnPct) add('warn', 'tcp-retrans', `${report.net.tcpRetransPct}% of TCP segments were retransmitted during the sample`)
   if (report.ntpSynced === false) add('warn', 'ntp-unsynced', 'system clock is not NTP-synchronized')
   if (report.rebootRequired === true) add('info', 'reboot-required', 'a package update requires a reboot')
   return findings

@@ -1,8 +1,9 @@
 /**
  * Fleet inspection (巡检): one read-only round trip per host collects
  * load, CPU, memory, disks, inodes, failed units, top processes, GPUs,
- * Slurm state, kernel errors and OOM kills; thresholds turn them into
- * findings, and the previous inspection supplies growth trends.
+ * Slurm state, kernel errors, OOM kills and network traffic; the runner
+ * adds the login latency. Thresholds turn them into findings, and the
+ * previous inspection supplies growth trends.
  * @module dsh-wisp-ops/collectors/inspect
  */
 import type { ThresholdsSpec } from '../config.ts';
@@ -44,7 +45,23 @@ export interface SlurmState {
     }[];
     readonly jobs: Record<string, number>;
 }
+/** Traffic over the one-second sample; rates are bytes per second. */
+export interface NetworkSample {
+    /** Totals over interfaces backed by a device, or every interface but `lo` when none is. */
+    readonly rxBps: number;
+    readonly txBps: number;
+    readonly interfaces: {
+        readonly name: string;
+        readonly rxBps: number;
+        readonly txBps: number;
+    }[];
+    readonly tcpEstablished?: number;
+    /** Retransmitted share of TCP segments sent during the sample; absent when too few were sent to tell. */
+    readonly tcpRetransPct?: number;
+}
 export interface HostInspection {
+    /** Milliseconds from starting ssh until the remote shell answered, measured locally. */
+    readonly loginMs?: number;
     readonly hostname?: string;
     readonly os?: string;
     readonly kernel?: string;
@@ -77,6 +94,7 @@ export interface HostInspection {
     readonly kernelErrorSamples: string[];
     readonly rebootRequired?: boolean;
     readonly ntpSynced?: boolean;
+    readonly net?: NetworkSample;
 }
 /** Compact metrics kept per inspection for trends. */
 export interface InspectionMetrics {
@@ -85,6 +103,11 @@ export interface InspectionMetrics {
     readonly memAvailPct?: number;
     readonly load1?: number;
     readonly cpuPct?: number;
+    readonly loginMs?: number;
+    readonly rxBps?: number;
+    readonly txBps?: number;
+    readonly tcpEstablished?: number;
+    readonly tcpRetransPct?: number;
 }
 /** Parse the inspection script's output. */
 export declare function parseInspection(output: string): HostInspection;

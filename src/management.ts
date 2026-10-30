@@ -25,6 +25,7 @@ import type { MissedRun } from './schedule.ts'
 import { OpsSync } from './sync.ts'
 import { OpsUpdates } from './updates.ts'
 import { buildOverview, overviewLimit } from './overview.ts'
+import { AUTO_INSPECT_AUDIT, AutoInspector } from './auto-inspect.ts'
 import type { UpdateHost } from './updates.ts'
 import type { SpaceSnapshot } from './collectors/space.ts'
 
@@ -59,6 +60,7 @@ export class OpsManager {
   /** Panel inspections in flight by host, so repeated clicks share one run and one history append. */
   private readonly inspections = new Map<string, Promise<unknown>>()
   private readonly sync
+  readonly auto: AutoInspector
   constructor(readonly service: OpsService, readonly vault: LocalVault, private readonly scheduler: () => Scheduler | undefined, private readonly updates?: OpsUpdates, private readonly agents?: AgentLookup, private readonly runner?: TaskRunner) {
     this.state = managedStore(service.config.dataDir)
     this.library = templateStore(service.config.dataDir)
@@ -66,6 +68,7 @@ export class OpsManager {
     this.scripts = scriptStore(service.config.dataDir)
     this.scriptDrafts = scriptDraftStore(service.config.dataDir)
     this.sync = new OpsSync(service, vault, async () => (await this.scheduleRecords()).some(r => r.title.startsWith(SCHEDULE_TITLE_PREFIX) && r.status === 'active'))
+    this.auto = new AutoInspector(service, host => this.inspectHost(host, 'wispOps:autoInspect', AUTO_INSPECT_AUDIT))
   }
   /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups and inspections bypass the queue. */
   dispatch(value: unknown): Promise<unknown> {
@@ -100,6 +103,22 @@ export class OpsManager {
       if (row && typeof row.path === 'string' && typeof row.at === 'string' && Array.isArray(row.dirs)) latest.set(row.path, row)
     }
     return { host, entries: [...latest.values()].sort((a, b) => a.path.localeCompare(b.path)) }
+  }
+  /**
+   * Read-only inspection of one server without sudo for the panel and the auto inspector; the result joins the same
+   * history ops_inspect writes. Other servers inspect in parallel; a second request for this one joins the run in flight.
+   */
+  private inspectHost(host: Host, tool: string, auditCommand?: string) {
+    const running = this.inspections.get(host.name)
+    if (running) return running
+    const run = (async () => {
+      const result = await this.service.inspect([host], { sudo: false, authorization: 'read-only', tool, ...auditCommand === undefined ? {} : { auditCommand } })
+      const entry = result.hosts[0]
+      if (!entry) throw new Error('巡检未返回结果。')
+      return { at: result.at, status: entry.status, severity: entry.severity, findings: entry.findings.length, error: entry.error ?? '', durationMs: entry.durationMs }
+    })().finally(() => this.inspections.delete(host.name))
+    this.inspections.set(host.name, run)
+    return run
   }
   private async scheduleRecords(): Promise<ScheduledRecord[]> {
     return await this.scheduler()?.catalog() ?? []
@@ -335,21 +354,14 @@ export class OpsManager {
       return { status: result.status, user: result.status === 'ok' ? result.stdout.trim().split('\n')[0] ?? '' : '', error: result.status === 'ok' ? '' : result.stderr.trim().slice(0, 300) }
     }
     if (action === 'inspectNow') {
-      // Owner-initiated read-only inspection of one server without sudo; the result joins the same history ops_inspect writes.
-      const name = string(request, 'host')
-      const host = this.service.inventory.hosts.get(name)
+      // Owner-initiated read-only inspection of one server without sudo.
+      const host = this.service.inventory.hosts.get(string(request, 'host'))
       if (!host) throw new Error('服务器不存在。')
-      // Other servers inspect in parallel; a second request for this one joins the run already in flight.
-      const running = this.inspections.get(name)
-      if (running) return running
-      const run = (async () => {
-        const result = await this.service.inspect([host], { sudo: false, authorization: 'read-only', tool: 'wispOps:panelInspect' })
-        const entry = result.hosts[0]
-        if (!entry) throw new Error('巡检未返回结果。')
-        return { at: result.at, status: entry.status, severity: entry.severity, findings: entry.findings.length, error: entry.error ?? '', durationMs: entry.durationMs }
-      })().finally(() => this.inspections.delete(name))
-      this.inspections.set(name, run)
-      return run
+      return this.inspectHost(host, 'wispOps:panelInspect')
+    }
+    if (action === 'setAutoInspect') {
+      // Owner-only: the interval at which this device inspects every server read-only; 0 turns it off.
+      return { intervalMinutes: await this.auto.set(request.minutes) }
     }
     if (action === 'setPolicy') {
       // Owner-only: the panel's override wins over the host's YAML, group and default policy for the listed capabilities.
@@ -579,7 +591,7 @@ export class OpsManager {
   private async overview(request: Request) {
     const limit = overviewLimit(request.limit)
     const hosts = await Promise.all([...this.service.inventory.hosts.values()].map(async host => ({ name: host.name, groups: host.groups, history: await this.service.store.readHistory(host.name, limit) })))
-    return buildOverview(hosts, limit)
+    return { ...buildOverview(hosts, limit), auto: await this.auto.status(hosts.map(host => host.history.at(-1)?.at)) }
   }
   private async snapshot() {
     const state = await this.state.read(), vault = await this.vault.list()
@@ -631,6 +643,7 @@ export class OpsManagement extends TypertRemoteService {
     const runner = new TaskRunner(options.service, id => agents()?.get(id))
     this.manager = new OpsManager(options.service, options.vault, () => ctx.get('schedule') as Scheduler | undefined, updates, id => agents()?.get(id), runner)
     ctx.effect(() => runner.start())
+    ctx.effect(() => this.manager.auto.start())
     ctx.effect(() => {
       const tick = () => { void updates.dispatch('updateTick').catch(() => {}) }
       const timer = setInterval(tick, 15 * 60_000)

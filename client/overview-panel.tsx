@@ -2,17 +2,35 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { tr } from './i18n'
 import type { Api, Host, Overview, OverviewHost, OverviewRow, OverviewState } from './contracts'
 
-const RANGES = [10, 30, 90]
+/** Mirrors src/auto-inspect.ts AUTO_INSPECT_MINUTES; 0 is off. */
+const AUTO_MINUTES = [0, 5, 15, 30, 60, 180, 360, 720, 1440]
+/** While automatic inspection is on, saved history is reread this often so new runs appear without a click. */
+const POLL_MS = 60_000
 /** "Inspect all" connects to at most this many servers at once; the rest wait their turn. */
 const PARALLEL = 4
 const date = (value: string) => new Date(value).toLocaleString()
+const clock = (value: string) => {
+  const at = new Date(value)
+  return at.toDateString() === new Date().toDateString() ? at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : at.toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+const ms = (value: number) => (value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(1)} s`)
+const rate = (bps: number) => {
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let value = bps, unit = 0
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
+  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+const autoLabel = (minutes: number) => (minutes === 0 ? tr('fleet.auto.off') : minutes < 60 ? tr('fleet.auto.minutes', { p0: minutes }) : tr('fleet.auto.hours', { p0: minutes / 60 }))
 const stateLabel = (state: OverviewState | 'never') => ({ ok: tr('fleet.summary.ok'), warn: tr('fleet.summary.warn'), crit: tr('fleet.summary.crit'), unreachable: tr('fleet.summary.unreachable'), never: tr('fleet.summary.never') })[state]
 const worstDisk = (row: OverviewRow) => Object.entries(row.diskPct).sort((a, b) => b[1] - a[1])[0]
 
 interface InspectResult { status: string; severity: string; findings: number; error: string }
-interface Series { key: string; label: string; values: { at: string; value: number }[]; kind: 'used' | 'available' }
+/** Percentages share a fixed 0–100 scale; latency, traffic and connection counts scale to their own peak. */
+interface Series { key: string; label: string; values: { at: string; value: number }[]; kind: 'used' | 'available' | 'latency' | 'rate' | 'count'; tone?: 'ok' | 'warn' }
+const percent = (series: Series) => series.kind === 'used' || series.kind === 'available'
+const formatValue = (series: Series, value: number) => series.kind === 'latency' ? ms(value) : series.kind === 'rate' ? rate(value) : series.kind === 'count' ? String(Math.round(value)) : `${value.toFixed(0)}%`
 
-/** Up to three busiest mounts, memory and CPU, each as a 0–100 % series over the stored inspections. */
+/** Up to three busiest mounts, memory, CPU and the network, each as a series over the stored inspections. */
 function seriesOf(host: OverviewHost): Series[] {
   const rows = host.rows.filter(r => r.state !== 'unreachable')
   const latest = rows.at(-1)
@@ -22,6 +40,11 @@ function seriesOf(host: OverviewHost): Series[] {
     ...mounts.map(mount => pick(`disk:${mount}`, tr('fleet.disk', { p0: mount }), 'used', row => row.diskPct[mount])),
     pick('mem', tr('fleet.memory'), 'available', row => row.memAvailPct),
     pick('cpu', tr('fleet.cpu'), 'used', row => row.cpuPct),
+    // The login threshold lives in the server config, so its finding decides the color.
+    { ...pick('login', tr('fleet.latency'), 'latency', row => row.loginMs), tone: latest?.findings.some(f => f.code === 'login-slow') ? 'warn' as const : 'ok' as const },
+    pick('rx', tr('fleet.rx'), 'rate', row => row.rxBps),
+    pick('tx', tr('fleet.tx'), 'rate', row => row.txBps),
+    pick('tcp', tr('fleet.tcp'), 'count', row => row.tcpEstablished),
   ].filter(series => series.values.length > 0)
 }
 
@@ -29,27 +52,43 @@ function Sparkline({ series }: { series: Series }) {
   const { values } = series
   const first = values[0]!, last = values.at(-1)!
   const delta = last.value - first.value
-  const points = values.map((point, index) => `${values.length === 1 ? 50 : (index / (values.length - 1)) * 100},${32 - (Math.min(100, Math.max(0, point.value)) / 100) * 32}`)
+  const top = percent(series) ? 100 : Math.max(...values.map(v => v.value)) * 1.15 || 1
+  const y = (value: number) => 32 - (Math.min(top, Math.max(0, value)) / top) * 32
+  const points = values.map((point, index) => `${values.length === 1 ? 50 : (index / (values.length - 1)) * 100},${y(point.value)}`)
   // Higher used % and lower available % both move the line toward the danger color.
   const danger = series.kind === 'used' ? last.value >= 90 : last.value <= 10
   const caution = series.kind === 'used' ? last.value >= 80 : last.value <= 20
-  const tone = danger ? 'crit' : caution ? 'warn' : 'ok'
+  const tone = percent(series) ? danger ? 'crit' : caution ? 'warn' : 'ok' : series.tone ?? 'plain'
   return <div className={`wo-spark ${tone}`}>
-    <div className="wo-spark-head"><span>{series.label}</span><strong>{series.kind === 'used' ? tr('fleet.used', { p0: last.value.toFixed(0) }) : tr('fleet.available', { p0: last.value.toFixed(0) })}</strong></div>
-    <svg viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label={`${series.label}: ${values.map(v => `${v.value.toFixed(0)}%`).join(', ')}`}>
+    <div className="wo-spark-head"><span>{series.label}</span><strong>{series.kind === 'used' ? tr('fleet.used', { p0: last.value.toFixed(0) }) : series.kind === 'available' ? tr('fleet.available', { p0: last.value.toFixed(0) }) : formatValue(series, last.value)}</strong></div>
+    <svg viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label={`${series.label}: ${values.map(v => formatValue(series, v.value)).join(', ')}`}>
       <line x1="0" y1="16" x2="100" y2="16" className="wo-spark-guide"/>
       {values.length > 1 && <polygon points={`0,32 ${points.join(' ')} 100,32`} className="wo-spark-area"/>}
-      {values.length > 1 ? <polyline points={points.join(' ')} className="wo-spark-line" vectorEffect="non-scaling-stroke"/> : <circle cx="50" cy={32 - (last.value / 100) * 32} r="2" className="wo-spark-dot"/>}
+      {values.length > 1 ? <polyline points={points.join(' ')} className="wo-spark-line" vectorEffect="non-scaling-stroke"/> : <circle cx="50" cy={y(last.value)} r="2" className="wo-spark-dot"/>}
     </svg>
-    <small>{values.length > 1 ? tr('fleet.delta', { p0: `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`, p1: new Date(first.at).toLocaleDateString() }) : tr('fleet.one.point')}</small>
+    <small>{values.length < 2 ? tr('fleet.one.point')
+      : percent(series) ? tr('fleet.delta', { p0: `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`, p1: new Date(first.at).toLocaleDateString() })
+      : tr('fleet.delta.value', { p0: `${delta >= 0 ? '+' : '-'}${formatValue(series, Math.abs(delta))}`, p1: new Date(first.at).toLocaleDateString() })}</small>
   </div>
 }
 
+/** The selected inspection's network facts, for the line under its time. */
+function networkFacts(row: OverviewRow): string[] {
+  return [
+    row.loginMs === undefined ? undefined : tr('fleet.net.login', { p0: ms(row.loginMs) }),
+    row.rxBps === undefined ? undefined : tr('fleet.net.rx', { p0: rate(row.rxBps) }),
+    row.txBps === undefined ? undefined : tr('fleet.net.tx', { p0: rate(row.txBps) }),
+    row.tcpEstablished === undefined ? undefined : tr('fleet.net.tcp', { p0: row.tcpEstablished }),
+    row.tcpRetransPct === undefined ? undefined : tr('fleet.net.retrans', { p0: row.tcpRetransPct }),
+  ].filter((fact): fact is string => fact !== undefined)
+}
+
 export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: Host[]; onSelectHost: (name: string) => void }) {
-  const [limit, setLimit] = useState(30)
   const [data, setData] = useState<Overview>()
   const [error, setError] = useState('')
-  const [picked, setPicked] = useState<{ host: string; index?: number }>()
+  // A cell is remembered by its time, so it stays picked while polling shifts older inspections out.
+  const [picked, setPicked] = useState<{ host: string; at?: string }>()
+  const [savingAuto, setSavingAuto] = useState(false)
   const [generation, setGeneration] = useState(0)
   // Hosts queued or running; the ref answers synchronously so one server is never inspected twice at once.
   const [jobs, setJobs] = useState<Record<string, 'queued' | 'running'>>({})
@@ -100,6 +139,15 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
     const parts = (['ok', 'warn', 'crit', 'unreachable', 'error'] as const).filter(key => tally[key]).map(key => `${key === 'error' ? tr('fleet.inspect.error') : stateLabel(key)} ${tally[key]}`)
     setNotice({ tone: tally.unreachable || tally.error ? 'bad' : 'good', text: tr('fleet.inspected.all', { p0: names.length, p1: parts.join(' · ') }) })
   }
+  async function setAuto(minutes: number) {
+    setSavingAuto(true); setNotice(undefined)
+    try {
+      await api({ action: 'setAutoInspect', minutes })
+      setData(prev => prev && { ...prev, auto: { ...prev.auto, intervalMinutes: minutes } })
+      setGeneration(g => g + 1)
+    } catch (e) { setNotice({ tone: 'bad', text: tr('fleet.auto.failed', { p0: e instanceof Error ? e.message : String(e) }) }) }
+    finally { setSavingAuto(false) }
+  }
   const info = (name: string) => {
     const host = hosts.find(h => h.name === name)
     if (!host) return ''
@@ -107,15 +155,24 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
   }
   useEffect(() => {
     let alive = true
-    void api({ action: 'overview', limit }).then(result => { if (alive) { setData(result as Overview); setError('') } }, () => { if (alive) setError(tr('fleet.error')) })
+    void api({ action: 'overview' }).then(result => { if (alive) { setData(result as Overview); setError('') } }, () => { if (alive) setError(tr('fleet.error')) })
     return () => { alive = false }
-  }, [api, limit, generation, hosts])
+  }, [api, generation, hosts])
+  const auto = data?.auto
+  const autoOn = (auto?.intervalMinutes ?? 0) > 0
+  useEffect(() => {
+    if (!autoOn) return
+    const timer = setInterval(() => setGeneration(g => g + 1), POLL_MS)
+    return () => clearInterval(timer)
+  }, [autoOn])
+  const autoStatus = !auto || !autoOn ? '' : auto.running ? tr('fleet.auto.running') : auto.nextAt ? tr('fleet.auto.next', { p0: clock(auto.nextAt) }) : ''
   const columns = Math.max(1, ...(data?.hosts.map(h => h.rows.length) ?? [1]))
   const selected = useMemo(() => {
     if (!data) return undefined
     const host = data.hosts.find(h => h.name === picked?.host) ?? data.hosts.find(h => h.latest === 'crit') ?? data.hosts.find(h => h.latest === 'warn') ?? data.hosts.find(h => h.rows.length) ?? data.hosts[0]
     if (!host) return undefined
-    const index = picked?.host === host.name && picked.index !== undefined ? picked.index : host.rows.length - 1
+    const found = picked?.host === host.name && picked.at !== undefined ? host.rows.findIndex(row => row.at === picked.at) : -1
+    const index = found === -1 ? host.rows.length - 1 : found
     return { host, row: host.rows[index], index }
   }, [data, picked])
   const series = useMemo(() => (selected ? seriesOf(selected.host) : []), [selected])
@@ -123,7 +180,11 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
   return <section className="wo-fleet" aria-label={tr('fleet.overview')}>
     <div className="wo-fleet-controls">
       <div className="wo-fleet-summary" role="status">{(['ok', 'warn', 'crit', 'unreachable', 'never'] as const).map(state => <span key={state} className={`wo-fleet-count ${state}`}><i className={`wo-dot ${state}`} aria-hidden="true"/>{stateLabel(state)}<strong>{data?.summary[state] ?? '—'}</strong></span>)}</div>
-      <div className="wo-fleet-actions"><div className="wo-range" role="group" aria-label={tr('fleet.range', { p0: limit })}>{RANGES.map(n => <button key={n} type="button" className={n === limit ? 'active' : ''} onClick={() => setLimit(n)}>{n}</button>)}</div><button type="button" disabled={!hosts.length || !!batch} onClick={() => void inspectAll()}>{batch ? tr('fleet.inspecting.all', { p0: batch.done, p1: batch.total }) : tr('fleet.inspect.all')}</button></div>
+      <div className="wo-fleet-actions">
+        <label className="wo-auto-inspect" title={tr('fleet.auto.hint')}><span>{tr('fleet.auto')}</span><select value={auto?.intervalMinutes ?? 0} disabled={!data || savingAuto} onChange={e => void setAuto(Number(e.target.value))}>{AUTO_MINUTES.map(m => <option key={m} value={m}>{autoLabel(m)}</option>)}</select></label>
+        {autoStatus && <small className="wo-auto-status">{autoStatus}</small>}
+        <button type="button" disabled={!hosts.length || !!batch} onClick={() => void inspectAll()}>{batch ? tr('fleet.inspecting.all', { p0: batch.done, p1: batch.total }) : tr('fleet.inspect.all')}</button>
+      </div>
     </div>
     {error && <p role="alert" className="wo-alert">{error}</p>}
     {!data && !error && <div className="wo-empty">{tr('fleet.loading')}</div>}
@@ -143,15 +204,16 @@ export function OverviewPanel({ api, hosts, onSelectHost }: { api: Api; hosts: H
             <div role="rowheader" className="wo-matrix-host"><button type="button" className="wo-text-button wo-matrix-name" onClick={() => setPicked({ host: host.name })} aria-pressed={current}><i className={`wo-dot ${host.latest}`} aria-hidden="true"/>{host.name}</button>{host.groups.length > 0 && <small>{host.groups.join(', ')}</small>}</div>
             <div role="cell" className="wo-matrix-mid"><span className="wo-matrix-info" title={info(host.name)}>{info(host.name)}</span><div className="wo-cells" style={{ ['--wo-columns' as string]: columns }}>
               {Array.from({ length: columns - host.rows.length }, (_, i) => <span key={`pad-${i}`} className="wo-cell never" aria-hidden="true"/>)}
-              {host.rows.map((row, index) => <button type="button" key={row.at} className={`wo-cell ${row.state}${current && selected?.index === index ? ' picked' : ''}`} title={`${date(row.at)} · ${stateLabel(row.state)}${row.findings.length ? ` · ${row.findings.map(f => f.code).join(', ')}` : ''}`} aria-label={`${host.name} ${date(row.at)} ${stateLabel(row.state)}`} onClick={() => setPicked({ host: host.name, index })}/>)}
+              {host.rows.map((row, index) => <button type="button" key={row.at} className={`wo-cell ${row.state}${current && selected?.index === index ? ' picked' : ''}`} title={`${date(row.at)} · ${stateLabel(row.state)}${row.findings.length ? ` · ${row.findings.map(f => f.code).join(', ')}` : ''}`} aria-label={`${host.name} ${date(row.at)} ${stateLabel(row.state)}`} onClick={() => setPicked({ host: host.name, at: row.at })}/>)}
             </div></div>
-            <div role="cell" className="wo-matrix-latest">{latest ? latest.state === 'unreachable' ? <span className="wo-muted">{tr('fleet.summary.unreachable')}</span> : <>{disk && <span>{tr('fleet.short.disk')} <strong>{disk[1]}%</strong></span>}{latest.memAvailPct !== undefined && <span>{tr('fleet.short.mem')} <strong>{latest.memAvailPct.toFixed(0)}%</strong></span>}</> : <button type="button" className="wo-text-button wo-inspect-now" disabled={!!job} onClick={() => void inspectNow(host.name)}>{jobLabel}</button>}{latest && <button type="button" className="wo-chip" disabled={!!job} title={jobLabel} aria-label={job ? `${host.name} ${jobLabel}` : tr('fleet.inspect.host', { p0: host.name })} onClick={() => void inspectNow(host.name)}>{job ? '…' : '⟳'}</button>}<button type="button" className="wo-chip" onClick={() => onSelectHost(host.name)} aria-label={tr('fleet.open.server')}>↗</button></div>
+            <div role="cell" className="wo-matrix-latest">{latest ? latest.state === 'unreachable' ? <span className="wo-muted">{tr('fleet.summary.unreachable')}</span> : <>{disk && <span>{tr('fleet.short.disk')} <strong>{disk[1]}%</strong></span>}{latest.memAvailPct !== undefined && <span>{tr('fleet.short.mem')} <strong>{latest.memAvailPct.toFixed(0)}%</strong></span>}{latest.loginMs !== undefined && <span>{tr('fleet.short.latency')} <strong>{ms(latest.loginMs)}</strong></span>}</> : <button type="button" className="wo-text-button wo-inspect-now" disabled={!!job} onClick={() => void inspectNow(host.name)}>{jobLabel}</button>}{latest && <button type="button" className="wo-chip" disabled={!!job} title={jobLabel} aria-label={job ? `${host.name} ${jobLabel}` : tr('fleet.inspect.host', { p0: host.name })} onClick={() => void inspectNow(host.name)}>{job ? '…' : '⟳'}</button>}<button type="button" className="wo-chip" onClick={() => onSelectHost(host.name)} aria-label={tr('fleet.open.server')}>↗</button></div>
           </div>
         })}
       </div>
       {selected && <article className="wo-detail wo-fleet-detail">
         <div className="wo-detail-title"><div><span className="wo-eyebrow">{tr('fleet.trends')}</span><h2>{selected.host.name}</h2></div>{selected.row && <span className={`wo-badge ${selected.row.state}`}>{stateLabel(selected.row.state)}</span>}</div>
         {selected.row && <p className="wo-muted">{tr('fleet.inspection.at', { p0: date(selected.row.at) })}</p>}
+        {selected.row && networkFacts(selected.row).length > 0 && <p className="wo-net-facts"><strong>{tr('fleet.network')}</strong>{networkFacts(selected.row).map(fact => <span key={fact}>{fact}</span>)}</p>}
         {series.length > 0 ? <div className="wo-spark-grid">{series.map(s => <Sparkline key={s.key} series={s}/>)}</div> : <p className="wo-muted">{tr('fleet.one.point')}</p>}
         <div className="wo-section-title"><h3>{tr('fleet.findings')}</h3></div>
         {!selected.row ? <p className="wo-muted">{tr('fleet.summary.never')}</p>

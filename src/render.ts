@@ -7,6 +7,8 @@ import { formatKb } from './collectors/sections.ts'
 import type { FleetInspection } from './service.ts'
 import type { RunResult } from './ssh.ts'
 
+const formatRate = (bps: number) => bps < 1024 ? `${Math.round(bps)}B/s` : `${formatKb(bps / 1024)}/s`
+
 function statusLine(r: RunResult): string {
   const exit = r.exitCode === null ? '' : ` exit ${r.exitCode}`
   return `${r.status}${exit}, ${(r.durationMs / 1000).toFixed(1)}s${r.truncated ? ', output truncated' : ''}`
@@ -50,6 +52,8 @@ export function renderInspection(fleet: FleetInspection, detail: boolean): strin
           r.disks.length === 0 ? undefined : `disk max ${Math.max(...r.disks.map(d => d.usePct))}%`,
           r.gpus.length === 0 ? undefined : `gpu ${r.gpus.map(g => `${g.utilPct ?? '?'}%`).join('/')}`,
           r.slurm === undefined ? undefined : `slurm ${Object.entries(r.slurm.nodeStates).map(([s, n]) => `${n} ${s}`).join(', ')}`,
+          r.loginMs === undefined ? undefined : `login ${r.loginMs} ms`,
+          r.net === undefined ? undefined : `net rx ${formatRate(r.net.rxBps)} tx ${formatRate(r.net.txBps)}${r.net.tcpEstablished === undefined ? '' : `, ${r.net.tcpEstablished} tcp`}${r.net.tcpRetransPct === undefined ? '' : ` (${r.net.tcpRetransPct}% retrans)`}`,
         ].filter(Boolean).join(', ')
     lines.push(`- ${h.host} [${h.severity.toUpperCase()}] ${facts}`)
     for (const f of h.findings.filter(f => detail || f.severity !== 'info')) lines.push(`    ${f.severity}: ${f.message}`)
@@ -59,6 +63,7 @@ export function renderInspection(fleet: FleetInspection, detail: boolean): strin
       for (const g of r.gpus) lines.push(`    gpu ${g.index} ${g.name}: ${g.utilPct ?? '?'}% util, ${g.memUsedMb ?? '?'}/${g.memTotalMb ?? '?'} MiB, ${g.tempC ?? '?'}°C${g.processes.length > 0 ? `, pids ${g.processes.map(p => p.pid).join(' ')}` : ''}`)
       if (r.kernelErrorSamples.length > 0) lines.push(`    recent kernel errors:\n${r.kernelErrorSamples.map(l => `      ${l}`).join('\n')}`)
       for (const d of r.disks) lines.push(`    ${d.mount}: ${d.usePct}% of ${formatKb(d.sizeKb)}`)
+      if (r.net !== undefined && r.net.interfaces.length > 0) lines.push(`    interfaces: ${r.net.interfaces.map(i => `${i.name} rx ${formatRate(i.rxBps)} tx ${formatRate(i.txBps)}`).join(', ')}`)
     }
   }
   return lines.join('\n')

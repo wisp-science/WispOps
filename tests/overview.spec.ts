@@ -33,6 +33,14 @@ describe('fleet overview', () => {
     expect(row!.findings[0]!.message.endsWith('…')).toBe(true)
     expect(Object.keys(row!.diskPct)).toEqual(['/'])
   })
+  it('carries network metrics and drops values a damaged file made non-numeric', () => {
+    const [row] = overviewRows([ok('2026-10-01T00:00:00Z', { loginMs: 640, rxBps: 2048, txBps: 512, tcpEstablished: 37, tcpRetransPct: Number.NaN })])
+    expect(row).toMatchObject({ loginMs: 640, rxBps: 2048, txBps: 512, tcpEstablished: 37 })
+    expect(row).not.toHaveProperty('tcpRetransPct')
+    const [old] = overviewRows([ok('2026-10-01T00:00:00Z', { loginMs: '640' as unknown as number })])
+    expect(old).not.toHaveProperty('loginMs')
+    expect(old).not.toHaveProperty('rxBps')
+  })
   it('keeps inventory order, applies the limit per host and summarizes the latest state', () => {
     const history = Array.from({ length: 5 }, (_, i) => ok(`2026-10-0${i + 1}T00:00:00Z`, { diskPct: { '/': 40 + i } }))
     const view = buildOverview([

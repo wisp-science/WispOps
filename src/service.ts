@@ -46,6 +46,8 @@ export interface ExecOptions {
   readonly reason?: string
   /** Exact approved plan for managed changes, instead of the generated wrapper. */
   readonly auditCommand?: string
+  /** Measure the login separately from the script; see `RunRequest.timeLogin`. */
+  readonly timeLogin?: boolean
 }
 
 export interface HostInspectionResult {
@@ -142,6 +144,7 @@ export class OpsService {
         timeoutMs: options.timeoutMs,
         ...options.signal === undefined ? {} : { signal: options.signal },
         ...options.maxOutputBytes === undefined ? {} : { maxOutputBytes: options.maxOutputBytes },
+        ...options.timeLogin === undefined ? {} : { timeLogin: options.timeLogin },
       }
     })
     const at = new Date().toISOString()
@@ -163,13 +166,15 @@ export class OpsService {
   }
 
   /** Inspect a fleet, evaluate thresholds and trends, and record history. */
-  async inspect(hosts: readonly Host[], options: { sudo: boolean; signal?: AbortSignal; session?: string; authorization: Authorization; tool: string }): Promise<FleetInspection> {
+  async inspect(hosts: readonly Host[], options: { sudo: boolean; signal?: AbortSignal; session?: string; authorization: Authorization; tool: string; auditCommand?: string }): Promise<FleetInspection> {
     const results = await this.execute(hosts, INSPECT_SCRIPT, {
       sudo: options.sudo,
       timeoutMs: this.clampTimeout(this.config.ssh.connectTimeoutSec * 1000 + 45_000),
       tool: options.tool,
       risk: 'read',
       authorization: options.authorization,
+      timeLogin: true,
+      ...options.auditCommand === undefined ? {} : { auditCommand: options.auditCommand },
       ...options.signal === undefined ? {} : { signal: options.signal },
       ...options.session === undefined ? {} : { session: options.session },
     })
@@ -183,7 +188,8 @@ export class OpsService {
         await this.store.appendHistory(result.host, { at: now.toISOString(), diskPct: {}, status: result.status === 'ok' ? 'failed' : result.status, findings: [{ severity: 'crit', code: 'unreachable', message: error }] })
         return { host: result.host, status: result.status, severity: 'unreachable', findings: [{ severity: 'crit', code: result.status === 'ok' || result.status === 'failed' ? 'no-output' : result.status, message: error }], error, durationMs: result.durationMs }
       }
-      const report = parseInspection(result.stdout)
+      const parsed = parseInspection(result.stdout)
+      const report = result.firstOutputMs === undefined ? parsed : { ...parsed, loginMs: result.firstOutputMs }
       const previous = await this.store.lastHealthy(result.host)
       const findings = sortFindings(evaluate(report, this.config.thresholds, previous))
       await this.store.appendHistory(result.host, { ...metricsOf(report, now), status: 'ok', findings })

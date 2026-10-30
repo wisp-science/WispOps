@@ -23,6 +23,8 @@ export interface RunResult {
     readonly stderr: string;
     readonly truncated: boolean;
     readonly durationMs: number;
+    /** Milliseconds from starting ssh to the first byte on stdout; with `timeLogin`, the login itself. */
+    readonly firstOutputMs?: number;
 }
 export interface RunRequest {
     readonly host: Host;
@@ -40,6 +42,8 @@ export interface RunRequest {
     readonly signal?: AbortSignal;
     /** Per-stream capture limit for built-in collectors whose output is bounded by construction. */
     readonly maxOutputBytes?: number;
+    /** Print `@@login` before the prelude, so `firstOutputMs` measures the login rather than profile loading. */
+    readonly timeLogin?: boolean;
 }
 /** Exit status the password wrapper uses when sudo rejects the password. */
 export declare const SUDO_REJECTED_EXIT = 97;

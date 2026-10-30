@@ -16,6 +16,11 @@ export interface OverviewRow {
     readonly memAvailPct?: number;
     readonly load1?: number;
     readonly cpuPct?: number;
+    readonly loginMs?: number;
+    readonly rxBps?: number;
+    readonly txBps?: number;
+    readonly tcpEstablished?: number;
+    readonly tcpRetransPct?: number;
     /** Non-informational findings, newest inspection first in the parent; at most `MAX_FINDINGS` each. */
     readonly findings: readonly {
         readonly severity: 'warn' | 'crit';

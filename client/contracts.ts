@@ -52,9 +52,16 @@ export interface SessionList { ids: string[]; byId: Record<string, { displayTitl
 export interface PageProps { api: Api; sidebar?: boolean; defaultSessionId?: string; useSessions?: (selector: (state: SessionList) => SessionList) => SessionList }
 /** Mirrors src/overview.ts; the panel only reads these shapes. */
 export type OverviewState = 'ok' | 'warn' | 'crit' | 'unreachable'
-export interface OverviewRow { at: string; state: OverviewState; diskPct: Record<string, number>; memAvailPct?: number; load1?: number; cpuPct?: number; findings: { severity: 'warn' | 'crit'; code: string; message: string }[] }
+export interface OverviewRow {
+  at: string; state: OverviewState; diskPct: Record<string, number>; memAvailPct?: number; load1?: number; cpuPct?: number;
+  /** Network: SSH login time, bytes per second over the sample, established TCP connections and retransmit share. */
+  loginMs?: number; rxBps?: number; txBps?: number; tcpEstablished?: number; tcpRetransPct?: number;
+  findings: { severity: 'warn' | 'crit'; code: string; message: string }[]
+}
 export interface OverviewHost { name: string; groups: string[]; rows: OverviewRow[]; latest: OverviewState | 'never' }
-export interface Overview { generatedAt: string; limit: number; hosts: OverviewHost[]; summary: Record<OverviewState | 'never', number> }
+/** Mirrors src/auto-inspect.ts AutoInspectStatus; 0 minutes is off. */
+export interface AutoInspect { intervalMinutes: number; running: boolean; nextAt?: string }
+export interface Overview { generatedAt: string; limit: number; hosts: OverviewHost[]; summary: Record<OverviewState | 'never', number>; auto: AutoInspect }
 /** One audit entry as the `auditLog` action returns it (mirrors src/store.ts AuditEntry, command truncated). */
 export interface AuditRow { at: string; session?: string; tool: string; host: string; risk: string; sudo: boolean; authorization: string; command: string; reason?: string; status: string; exitCode: number | null; durationMs: number }
 export interface AuditLog { rows: AuditRow[]; limit: number; sinceHours: number; retentionMonths: number }

@@ -183,6 +183,10 @@ export interface ThresholdsSpec {
     zombieWarn: number;
     /** Disk growth since the previous inspection that is reported, in percentage points. */
     diskGrowthWarnPts: number;
+    /** SSH login slower than this is a warning; 0 disables the check. */
+    loginWarnMs: number;
+    /** TCP retransmit share during the inspection sample that is a warning; 0 disables the check. */
+    tcpRetransWarnPct: number;
 }
 export interface ProtectSpec {
     /** File-writing tools and the argument holding their path; writes to the inventory file or data directory are refused. */

@@ -489,6 +489,63 @@ describe('panel inspection', () => {
     inspect.mockRestore()
   })
 })
+describe('auto inspection', () => {
+  /** Stands in for a real inspection: appends one healthy row to the host's history, as service.inspect does. */
+  const fakeInspect = () => vi.spyOn(service, 'inspect').mockImplementation(async hosts => {
+    const at = new Date().toISOString()
+    for (const host of hosts) await service.store.appendHistory(host.name, { at, status: 'ok', diskPct: {}, findings: [] })
+    return { at, counts: { ok: hosts.length, info: 0, warn: 0, crit: 0, unreachable: 0 }, hosts: hosts.map(h => ({ host: h.name, status: 'ok' as const, severity: 'ok' as const, findings: [], durationMs: 5 })) }
+  })
+  it('is off by default and accepts only the offered intervals', async () => {
+    expect((await manager.dispatch({ action: 'overview' }) as any).auto).toEqual({ intervalMinutes: 0, running: false })
+    for (const minutes of [7, -5, '15', undefined]) await expect(manager.dispatch({ action: 'setAutoInspect', minutes })).rejects.toThrow('间隔不正确')
+    const inspect = fakeInspect()
+    expect(await manager.dispatch({ action: 'setAutoInspect', minutes: 0 })).toEqual({ intervalMinutes: 0 })
+    await manager.auto.tick()
+    expect(inspect).not.toHaveBeenCalled()
+    inspect.mockRestore()
+  })
+  it('inspects read-only only the servers whose newest inspection is older than the interval', async () => {
+    await service.store.appendHistory('a', { at: new Date().toISOString(), status: 'ok', diskPct: {}, findings: [] })
+    await service.store.appendHistory('b', { at: new Date(Date.now() - 20 * 60_000).toISOString(), status: 'ok', diskPct: {}, findings: [] })
+    const inspect = fakeInspect()
+    // Saving starts the overdue servers at once instead of waiting for the next tick.
+    expect(await manager.dispatch({ action: 'setAutoInspect', minutes: 15 })).toEqual({ intervalMinutes: 15 })
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(1))
+    expect(inspect.mock.calls[0]![0].map(h => h.name)).toEqual(['b'])
+    expect(inspect.mock.calls[0]![1]).toMatchObject({ sudo: false, authorization: 'read-only', tool: 'wispOps:autoInspect', auditCommand: expect.stringMatching(/^built-in inspection script sha256:[0-9a-f]{16}$/) })
+    await vi.waitFor(async () => expect((await manager.dispatch({ action: 'overview' }) as any).auto.running).toBe(false))
+    // Both are now fresh, so another pass does nothing; the interval survives a new manager.
+    await manager.auto.tick()
+    expect(inspect).toHaveBeenCalledTimes(1)
+    const view = await new OpsManager(service, vault, () => scheduler).dispatch({ action: 'overview' }) as any
+    expect(view.auto.intervalMinutes).toBe(15)
+    expect(Date.parse(view.auto.nextAt) - Date.now()).toBeGreaterThan(14 * 60_000)
+    inspect.mockRestore()
+  })
+  it('shares a run in flight with the panel instead of inspecting a server twice', async () => {
+    let release!: () => void
+    const inspect = vi.spyOn(service, 'inspect').mockImplementation(async hosts => {
+      await new Promise<void>(resolve => { release = resolve })
+      return { at: new Date().toISOString(), counts: { ok: 1, info: 0, warn: 0, crit: 0, unreachable: 0 }, hosts: [{ host: hosts[0]!.name, status: 'ok', severity: 'ok', findings: [], durationMs: 5 }] }
+    })
+    const entered = vi.spyOn(manager as unknown as { inspectHost: (...args: unknown[]) => unknown }, 'inspectHost')
+    await service.store.appendHistory('b', { at: new Date().toISOString(), status: 'ok', diskPct: {}, findings: [] })
+    const panel = manager.dispatch({ action: 'inspectNow', host: 'a' })
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(1))
+    await manager.auto.state.change((await manager.auto.state.read()).revision, () => ({ version: 1, intervalMinutes: 5 }))
+    const pass = manager.auto.tick()
+    // The pass reaches the server that is still being inspected for the panel, then waits on that same run.
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledTimes(2))
+    expect(entered.mock.calls[1]![1]).toBe('wispOps:autoInspect')
+    expect((await manager.dispatch({ action: 'overview' }) as any).auto.running).toBe(true)
+    release()
+    await Promise.all([panel, pass])
+    expect(inspect).toHaveBeenCalledTimes(1)
+    entered.mockRestore()
+    inspect.mockRestore()
+  })
+})
 describe('real DSH Gateway', () => {
   it('dispatches an owner request over the native protocol and refuses non-owner callers', async () => {
     const ctx = new Context()

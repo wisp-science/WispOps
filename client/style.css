@@ -123,7 +123,10 @@
 .wo-fleet-count{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .wo-fleet-count strong{color:var(--wo-text);font-weight:600;font-variant-numeric:tabular-nums}
 .wo-dot.ok{background:var(--wo-ok)}.wo-dot.warn{background:var(--wo-warn)}.wo-dot.crit{background:var(--wo-crit)}.wo-dot.unreachable{background:var(--wo-unreachable)}.wo-dot.never{background:var(--wo-never)}
-.wo-fleet-actions{display:flex;flex-wrap:wrap;gap:6px}
+.wo-fleet-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.wo-auto-inspect{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--wo-muted);white-space:nowrap}
+.wo-root .wo-auto-inspect select{font-size:12px;padding:5px 9px;color:var(--wo-text)}
+.wo-root small.wo-auto-status{font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .wo-range{display:flex;gap:6px}
 .wo-range button,.wo-fleet-actions>button{font-size:12px;padding:5px 10px}
 .wo-range button.active{background:var(--wo-tint);border-color:var(--wo-accent);color:var(--wo-accent);font-weight:600}
@@ -150,7 +153,10 @@
 .wo-badge.ok{background:#eaf6ef;color:#3b8460}.wo-badge.crit{background:#fbe9e9;color:#9c3d3d}.wo-badge.unreachable{background:var(--wo-panel);color:var(--wo-muted)}
 .wo-spark-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:14px}
 .wo-spark{border:1px solid var(--wo-line);border-radius:8px;padding:10px 12px;min-width:0;--wo-series:var(--wo-ok)}
-.wo-spark.warn{--wo-series:var(--wo-warn)}.wo-spark.crit{--wo-series:var(--wo-crit)}
+.wo-spark.warn{--wo-series:var(--wo-warn)}.wo-spark.crit{--wo-series:var(--wo-crit)}.wo-spark.plain{--wo-series:var(--wo-accent)}
+.wo-root p.wo-net-facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;font-size:12px;color:var(--wo-muted);margin:4px 0 0}
+.wo-net-facts strong{color:var(--wo-text);font-weight:600}
+.wo-net-facts span{font-variant-numeric:tabular-nums}
 .wo-spark-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--wo-muted)}
 .wo-spark-head span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wo-spark-head strong{color:var(--wo-text);font-variant-numeric:tabular-nums;white-space:nowrap}

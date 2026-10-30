@@ -65,6 +65,15 @@ describe('SshRunner', () => {
     expect(r.status).toBe('sudo-required')
   })
 
+  it('times the login to the first output, before the profile prelude', async () => {
+    const timed = await runner.run({ host, script: 'sleep 0.4; echo done', sudo: false, timeoutMs: 5000, timeLogin: true })
+    expect(timed).toMatchObject({ status: 'ok', stdout: '@@login\ndone\n' })
+    expect(timed.firstOutputMs).toBeLessThan(timed.durationMs - 250)
+    const plain = await runner.run({ host, script: 'echo done', sudo: false, timeoutMs: 5000 })
+    expect(plain.stdout).toBe('done\n')
+    expect((await runner.run({ host, script: 'true', sudo: false, timeoutMs: 5000 })).firstOutputMs).toBeUndefined()
+  })
+
   it('times out', async () => {
     const r = await runner.run({ host, script: 'sleep 5', sudo: false, timeoutMs: 300 })
     expect(r.status).toBe('timeout')

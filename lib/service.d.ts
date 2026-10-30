@@ -35,6 +35,8 @@ export interface ExecOptions {
     readonly reason?: string;
     /** Exact approved plan for managed changes, instead of the generated wrapper. */
     readonly auditCommand?: string;
+    /** Measure the login separately from the script; see `RunRequest.timeLogin`. */
+    readonly timeLogin?: boolean;
 }
 export interface HostInspectionResult {
     readonly host: string;
@@ -78,6 +80,7 @@ export declare class OpsService {
         session?: string;
         authorization: Authorization;
         tool: string;
+        auditCommand?: string;
     }): Promise<FleetInspection>;
     /** Diagnose one filesystem and store a snapshot for the next comparison. */
     disk(host: Host, options: DiskOptions & {

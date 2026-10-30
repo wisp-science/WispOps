@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseDisk, renderDisk } from '../src/collectors/disk.ts'
 import type { DiskOptions } from '../src/collectors/disk.ts'
-import { evaluate, parseInspection, worstSeverity } from '../src/collectors/inspect.ts'
+import { evaluate, metricsOf, parseInspection, worstSeverity } from '../src/collectors/inspect.ts'
 import { parseProbe } from '../src/collectors/probe.ts'
 import { resolveConfig } from '../src/config.ts'
 
@@ -59,6 +59,28 @@ gpu-02|drained|Kill task failed
       3 PENDING
 @@kerr
 Oct 26 10:00:00 gpu-01 kernel: NVRM: Xid 79
+@@netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:    5000      50    0    0    0     0          0         0     5000      50    0    0    0     0       0          0
+  eth0: 1000000     900    0    0    0     0          0         0  2000000     800    0    0    0     0       0          0
+  eth1:9000000      900    0    0    0     0          0         0      100     800    0    0    0     0       0          0
+docker0:    100       1    0    0    0     0          0         0      100       1    0    0    0     0       0          0
+--
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:    9000      90    0    0    0     0          0         0     9000      90    0    0    0     0       0          0
+  eth0: 1524288     950    0    0    0     0          0         0  2001024     810    0    0    0     0       0          0
+  eth1:9100000      950    0    0    0     0          0         0      200     810    0    0    0     0       0          0
+docker0: 5000100     99    0    0    0     0          0         0  5000100      99    0    0    0     0       0          0
+@@netphys
+/sys/class/net/eth0
+/sys/class/net/eth1
+@@tcp
+Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+Tcp: 1 200 120000 -1 100 200 0 0 40 10000 20000 100 0 0 0
+Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+Tcp: 1 200 120000 -1 100 200 0 0 42 10300 20400 140 0 0 0
 @@end
 `
 
@@ -88,6 +110,32 @@ describe('inspection', () => {
     ]))
     expect(codes).not.toContain('warn:disk-growth:/data')
     expect(worstSeverity(findings)).toBe('crit')
+  })
+
+  it('measures traffic on device-backed interfaces and TCP over the one-second sample', () => {
+    // Bridges, veths and bonds have no backing device, so container traffic is not counted twice.
+    expect(report.net).toEqual({
+      rxBps: 524288 + 100000,
+      txBps: 1024 + 100,
+      interfaces: [{ name: 'docker0', rxBps: 5000000, txBps: 5000000 }, { name: 'eth0', rxBps: 524288, txBps: 1024 }, { name: 'eth1', rxBps: 100000, txBps: 100 }],
+      tcpEstablished: 42,
+      tcpRetransPct: 10,
+    })
+    // Without device information every interface but loopback counts; too few segments give no retransmit share.
+    const bare = parseInspection(INSPECT.replace(/@@netphys\n[^@]*/, '').replace('10300 20400 140', '10300 20050 101'))
+    expect(bare.net).toMatchObject({ rxBps: 5000000 + 524288 + 100000, tcpEstablished: 42 })
+    expect(bare.net?.tcpRetransPct).toBeUndefined()
+    expect(parseInspection('@@kv\nhostname=x\n@@end\n').net).toBeUndefined()
+  })
+
+  it('warns about a slow login and retransmits, and keeps network metrics for trends', () => {
+    const slow = { ...report, loginMs: 4200 }
+    const codes = evaluate(slow, T).map(f => `${f.severity}:${f.code}`)
+    expect(codes).toEqual(expect.arrayContaining(['warn:login-slow', 'warn:tcp-retrans']))
+    expect(evaluate({ ...report, loginMs: 800 }, T).map(f => f.code)).not.toContain('login-slow')
+    expect(evaluate(slow, { ...T, loginWarnMs: 0, tcpRetransWarnPct: 0 }).map(f => f.code)).not.toEqual(expect.arrayContaining(['login-slow']))
+    expect(evaluate(slow, { ...T, loginWarnMs: 0, tcpRetransWarnPct: 0 }).map(f => f.code)).not.toContain('tcp-retrans')
+    expect(metricsOf(slow, new Date('2026-10-29T00:00:00Z'))).toMatchObject({ loginMs: 4200, rxBps: 624288, txBps: 1124, tcpEstablished: 42, tcpRetransPct: 10 })
   })
 })
 

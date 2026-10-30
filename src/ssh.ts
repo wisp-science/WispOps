@@ -35,6 +35,8 @@ export interface RunResult {
   readonly stderr: string
   readonly truncated: boolean
   readonly durationMs: number
+  /** Milliseconds from starting ssh to the first byte on stdout; with `timeLogin`, the login itself. */
+  readonly firstOutputMs?: number
 }
 
 export interface RunRequest {
@@ -53,6 +55,8 @@ export interface RunRequest {
   readonly signal?: AbortSignal
   /** Per-stream capture limit for built-in collectors whose output is bounded by construction. */
   readonly maxOutputBytes?: number
+  /** Print `@@login` before the prelude, so `firstOutputMs` measures the login rather than profile loading. */
+  readonly timeLogin?: boolean
 }
 
 /** Exit status the password wrapper uses when sudo rejects the password. */
@@ -289,6 +293,7 @@ export class SshRunner {
       })
       const out = new Capture(request.maxOutputBytes ?? this.maxOutputBytes)
       const err = new Capture(request.maxOutputBytes ?? this.maxOutputBytes)
+      let firstOutputMs: number | undefined
       let ended: RunStatus | undefined
       let killTimer: NodeJS.Timeout | undefined
       const stop = (status: RunStatus) => {
@@ -300,7 +305,10 @@ export class SshRunner {
       const timer = setTimeout(() => stop('timeout'), request.timeoutMs)
       const onAbort = () => stop('cancelled')
       request.signal?.addEventListener('abort', onAbort, { once: true })
-      child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
+      child.stdout.on('data', (chunk: Buffer) => {
+        firstOutputMs ??= Date.now() - started
+        out.push(chunk)
+      })
       child.stderr.on('data', (chunk: Buffer) => err.push(chunk))
       child.stdin.on('error', () => {})
       let spawnError: Error | undefined
@@ -321,6 +329,7 @@ export class SshRunner {
           stderr,
           truncated: out.truncated || err.truncated,
           durationMs: Date.now() - started,
+          ...firstOutputMs === undefined ? {} : { firstOutputMs },
         })
       }
       child.on('close', code => finish(code))
@@ -333,7 +342,7 @@ export class SshRunner {
           finish(code)
         }, 500).unref()
       })
-      const script = prelude(this.spec) + (request.script.endsWith('\n') ? request.script : `${request.script}\n`)
+      const script = (request.timeLogin ? 'echo @@login\n' : '') + prelude(this.spec) + (request.script.endsWith('\n') ? request.script : `${request.script}\n`)
       child.stdin.end(withPassword ? `${request.sudoPassword}\n${script}` : script)
     })
   }

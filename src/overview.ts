@@ -20,6 +20,11 @@ export interface OverviewRow {
   readonly memAvailPct?: number
   readonly load1?: number
   readonly cpuPct?: number
+  readonly loginMs?: number
+  readonly rxBps?: number
+  readonly txBps?: number
+  readonly tcpEstablished?: number
+  readonly tcpRetransPct?: number
   /** Non-informational findings, newest inspection first in the parent; at most `MAX_FINDINGS` each. */
   readonly findings: readonly { readonly severity: 'warn' | 'crit'; readonly code: string; readonly message: string }[]
 }
@@ -52,6 +57,9 @@ export function overviewLimit(value: unknown): number {
   return Math.min(MAX_OVERVIEW_ROWS, Math.max(1, Math.floor(value)))
 }
 
+/** `{ key: value }` for a finite number, else nothing, so rows never carry NaN or strings from a damaged file. */
+const finite = <K extends string>(key: K, value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? { [key]: value } : {}) as { [P in K]?: number }
+
 function stateOf(record: HistoryRecord): OverviewState {
   if (record.status !== 'ok') return 'unreachable'
   const worst = worstSeverity(record.findings)
@@ -67,6 +75,11 @@ export function overviewRows(records: readonly HistoryRecord[]): OverviewRow[] {
     ...record.memAvailPct === undefined ? {} : { memAvailPct: record.memAvailPct },
     ...record.load1 === undefined ? {} : { load1: record.load1 },
     ...record.cpuPct === undefined ? {} : { cpuPct: record.cpuPct },
+    ...finite('loginMs', record.loginMs),
+    ...finite('rxBps', record.rxBps),
+    ...finite('txBps', record.txBps),
+    ...finite('tcpEstablished', record.tcpEstablished),
+    ...finite('tcpRetransPct', record.tcpRetransPct),
     findings: (record.findings ?? [])
       .filter((f): f is typeof f & { severity: 'warn' | 'crit' } => f.severity === 'crit' || f.severity === 'warn')
       .sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'crit' ? -1 : 1))

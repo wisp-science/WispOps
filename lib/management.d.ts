@@ -5,6 +5,7 @@ import type { OpsService } from './service.ts';
 import { TaskRunner } from './runner.ts';
 import type { LocalVault } from './vault.ts';
 import { OpsUpdates } from './updates.ts';
+import { AutoInspector } from './auto-inspect.ts';
 export interface ScheduledRecord {
     id: string;
     title: string;
@@ -47,6 +48,7 @@ export declare class OpsManager {
     /** Panel inspections in flight by host, so repeated clicks share one run and one history append. */
     private readonly inspections;
     private readonly sync;
+    readonly auto: AutoInspector;
     constructor(service: OpsService, vault: LocalVault, scheduler: () => Scheduler | undefined, updates?: OpsUpdates | undefined, agents?: AgentLookup | undefined, runner?: TaskRunner | undefined);
     /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups and inspections bypass the queue. */
     dispatch(value: unknown): Promise<unknown>;
@@ -56,6 +58,11 @@ export declare class OpsManager {
     private auditLog;
     /** The latest stored directory scan of each path on one server, for the space map; nothing runs remotely. */
     private spaceUsage;
+    /**
+     * Read-only inspection of one server without sudo for the panel and the auto inspector; the result joins the same
+     * history ops_inspect writes. Other servers inspect in parallel; a second request for this one joins the run in flight.
+     */
+    private inspectHost;
     private scheduleRecords;
     private update;
     private handle;
