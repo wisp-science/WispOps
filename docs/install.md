@@ -12,10 +12,10 @@
 dsh plugin --profile desktop add dsh-wisp-ops@latest
 ```
 
-如需固定到某个版本，例如 `0.12.0`：
+如需固定到某个版本，例如 `0.13.0`：
 
 ```bash
-dsh plugin --profile desktop add dsh-wisp-ops@0.12.0
+dsh plugin --profile desktop add dsh-wisp-ops@0.13.0
 ```
 
 `desktop` 是桌面版的默认 profile；Web 版通常是 `web`。安装后重启 Harness，在插件列表确认 WispOps 已启用。可从左侧 **服务器运维**，或会话右侧栏 **开始** → **服务器运维** 打开管理面板。
@@ -79,7 +79,7 @@ ERR_PNPM_EPERM ... rename '...\dsh-wisp-ops_tmp_<pid>_<n>' -> '...\dsh-wisp-ops'
 
    ```powershell
    Set-Location $env:USERPROFILE
-   dsh plugin --profile desktop add dsh-wisp-ops@0.12.0
+   dsh plugin --profile desktop add dsh-wisp-ops@0.13.0
    ```
 
 3. 成功后重新打开 Harness，确认 WispOps 启用、服务器和任务仍在。
@@ -98,7 +98,7 @@ ERR_PNPM_EPERM ... rename '...\dsh-wisp-ops_tmp_<pid>_<n>' -> '...\dsh-wisp-ops'
     Get-ChildItem -LiteralPath $wispModules -Directory -Force |
         Where-Object { $_.Name -eq 'dsh-wisp-ops' -or $_.Name -match '^dsh-wisp-ops_tmp_\d+_\d+$' } |
         ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $wispBackup -ErrorAction Stop }
-    dsh plugin --profile desktop add dsh-wisp-ops@0.12.0
+    dsh plugin --profile desktop add dsh-wisp-ops@0.13.0
     if ($LASTEXITCODE -ne 0) {
         throw "安装未完成，请保留备份并检查新的错误：$wispBackup"
     }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.0 — 2026-10-29
+
 - Explanations in every tab and dialog move behind a small ⓘ that shows them on hover or keyboard focus (a tap on touch screens), instead of paragraphs on the page. Warnings, the effects of an action and empty-state guidance stay visible.
 - State-change alerts: with auto inspection on, choose configured notification channels under **Alerts**. After each pass a server getting worse, becoming unreachable or recovering is sent once, with up to two problem summaries; the first state seen is a baseline, muted problems do not alert, and channels that failed are shown in the panel.
 - Mute known problems: each finding can be muted for 1, 7 or 30 days or until unmuted, for that server only (disk and service findings per mount or service). Muted findings stay in history and in `ops_inspect` output, marked as known, but no longer color the server or alert. Mutes take effect at once and sync with the panel configuration.
