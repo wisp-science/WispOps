@@ -10,7 +10,9 @@ import { homedir } from 'node:os'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
 import { CAPABILITIES, Config } from './config.ts'
-import type { Capability, GroupSpec, HostSpec, Permission, PolicySpec, TaskSpec } from './config.ts'
+import type { Capability, GroupSpec, HostSpec, Permission, PolicySpec, TaskSpec, ThresholdsSpec } from './config.ts'
+import type { Mute } from './mutes.ts'
+import type { ServiceCheck } from './service-checks.ts'
 import { managedStore } from './managed.ts'
 import type { ManagedState } from './managed.ts'
 import { classifyCommand } from './risk.ts'
@@ -24,6 +26,10 @@ export interface Host extends HostSpec {
   readonly inheritedPolicy: Record<Capability, Permission>
   /** Capabilities set in the panel; absent when nothing is overridden. */
   readonly policyOverride?: PolicySpec
+  /** Panel-set service checks, threshold overrides and muted findings for this host. */
+  readonly serviceChecks?: ServiceCheck[]
+  readonly thresholdOverride?: Partial<ThresholdsSpec>
+  readonly mutes?: Mute[]
 }
 
 const STRICTNESS: Record<Permission, number> = { allow: 0, ask: 1, deny: 2 }
@@ -66,7 +72,7 @@ export class Inventory {
   readonly groups: ReadonlyMap<string, GroupSpec>
   readonly tasks: ReadonlyMap<string, TaskSpec>
 
-  constructor(hosts: readonly (HostSpec & { policyOverride?: PolicySpec })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks: readonly TaskSpec[] = [], extraRead: ReadonlySet<string> = new Set()) {
+  constructor(hosts: readonly (HostSpec & { policyOverride?: PolicySpec; serviceChecks?: ServiceCheck[]; thresholdOverride?: Partial<ThresholdsSpec>; mutes?: Mute[] })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks: readonly TaskSpec[] = [], extraRead: ReadonlySet<string> = new Set()) {
     const groupMap = new Map(Object.entries(groups))
     const hostMap = new Map<string, Host>()
     for (const spec of hosts) {
@@ -174,7 +180,9 @@ export class Inventory {
     const hosts = [...imported.filter(h => !names.has(h.name)), ...configured, ...state.hosts].filter(h => !excluded.has(h.name)).map(h => {
       const binding = Object.hasOwn(state.bindings, h.name) ? state.bindings[h.name] : undefined
       const override = Object.hasOwn(state.policies, h.name) && Object.keys(state.policies[h.name]!).length > 0 ? state.policies[h.name] : undefined
-      return { ...h, ...binding, ...override === undefined ? {} : { policyOverride: override } }
+      const own = <T>(map: Record<string, T> | undefined) => map !== undefined && Object.hasOwn(map, h.name) ? map[h.name] : undefined
+      const checks = own(state.checks), thresholds = own(state.thresholds), mutes = own(state.mutes)
+      return { ...h, ...binding, ...override === undefined ? {} : { policyOverride: override }, ...checks === undefined ? {} : { serviceChecks: checks }, ...thresholds === undefined ? {} : { thresholdOverride: thresholds }, ...mutes === undefined ? {} : { mutes } }
     })
     return new Inventory(hosts, groups, config.defaultPolicy, [...tasks, ...state.tasks], new Set(config.extraReadPrograms))
   }

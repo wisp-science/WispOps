@@ -33,7 +33,6 @@ export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }
       } })
   }
   return <form ref={form} onSubmit={save}><fieldset className="wo-form-body" disabled={busy}>
-    <p className="wo-section-note">{tr("save.a.template.then.link.one")}</p>
     <div className="wo-form-grid"><Field title={tr("template.id")} hint={tr("e.g.daily.health")}><input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={80} defaultValue={copy ? `${template?.id.replace(/^builtin\./, '')}-copy` : template?.id} readOnly={!!template && !copy && !draft}/></Field><Field title={tr("template.title")}><input name="title" required defaultValue={template ? `${template.title}${copy ? tr("copy") : ''}` : ''} maxLength={120}/></Field></div>
     <Field title={tr("category")}><input name="category" defaultValue={template?.category ?? tr("custom.2")} required list="wo-categories"/><datalist id="wo-categories"><option value={tr("core.operations")}/><option value={tr("security")}/><option value={tr("application.services")}/><option value={tr("data.management")}/><option value={tr("compute.cluster")}/></datalist></Field>
     <Field title={tr("short.description")}><input name="description" defaultValue={template?.description} maxLength={1000}/></Field>
@@ -45,7 +44,6 @@ export function TemplateForm({ template, copy, draft, chat, zone, busy, submit }
     {playbook === 'new-files' && <Field title={tr("default.look.back.days")}><input name="days" type="number" min={1} required defaultValue={template?.definition.days ?? 1}/></Field>}
     {playbook === 'security' && <Field title={tr("default.look.back.hours")}><input name="hours" type="number" min={1} required defaultValue={template?.definition.hours ?? 24}/></Field>}
     <div className="wo-form-grid"><Field title={tr("suggested.daily.run.time")}><input name="time" type="time" defaultValue={template?.definition.schedule?.daily ?? '08:30'} required/></Field><Field title={tr("time.zone")}><input name="zone" defaultValue={template?.definition.schedule?.timeZone ?? zone} required/></Field></div>
-    <p className="wo-muted">{tr("choose.weekly.interval.or.cron.schedules")}</p>
     {chat && <p className="wo-muted">{chat.session ? tr("generate.in.chat.target", { p0: chat.session }) : tr("open.a.session.first")}</p>}
     <div className="wo-form-actions">{chat && <button type="button" disabled={!chat.session} onClick={askInChat}>{tr("generate.in.chat")}</button>}<button className="wo-primary">{busy ? tr("saving") : tr("save.to.task.library")}</button></div>
   </fieldset></form>

@@ -5,7 +5,9 @@
  * @module dsh-wisp-ops/inventory
  */
 import { Config } from './config.ts';
-import type { Capability, GroupSpec, HostSpec, Permission, PolicySpec, TaskSpec } from './config.ts';
+import type { Capability, GroupSpec, HostSpec, Permission, PolicySpec, TaskSpec, ThresholdsSpec } from './config.ts';
+import type { Mute } from './mutes.ts';
+import type { ServiceCheck } from './service-checks.ts';
 import type { ManagedState } from './managed.ts';
 /** A host with its effective policy resolved. */
 export interface Host extends HostSpec {
@@ -16,6 +18,10 @@ export interface Host extends HostSpec {
     readonly inheritedPolicy: Record<Capability, Permission>;
     /** Capabilities set in the panel; absent when nothing is overridden. */
     readonly policyOverride?: PolicySpec;
+    /** Panel-set service checks, threshold overrides and muted findings for this host. */
+    readonly serviceChecks?: ServiceCheck[];
+    readonly thresholdOverride?: Partial<ThresholdsSpec>;
+    readonly mutes?: Mute[];
 }
 /** The stricter of two permissions. */
 export declare function stricter(a: Permission, b: Permission): Permission;
@@ -33,6 +39,9 @@ export declare class Inventory {
     readonly tasks: ReadonlyMap<string, TaskSpec>;
     constructor(hosts: readonly (HostSpec & {
         policyOverride?: PolicySpec;
+        serviceChecks?: ServiceCheck[];
+        thresholdOverride?: Partial<ThresholdsSpec>;
+        mutes?: Mute[];
     })[], groups: Record<string, GroupSpec>, defaults: Record<Capability, Permission>, tasks?: readonly TaskSpec[], extraRead?: ReadonlySet<string>);
     /**
      * Build from config: imported hosts (e.g. WispTerm profiles) first, then

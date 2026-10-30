@@ -20,6 +20,7 @@ reboot_required=yes
 ntp=no
 oom_24h=2
 kerr_24h=4
+sshfail_1h=240
 @@meminfo
 MemTotal:       263842256 kB
 MemAvailable:    10553690 kB
@@ -57,6 +58,18 @@ gpu-02|drained|Kill task failed
 @@squeue
      12 RUNNING
       3 PENDING
+@@listen
+0.0.0.0:22
+127.0.0.1:631
+[::]:22
+[::1]:631
+*:8888
+10.0.0.5%eth0:9100
+127.0.0.53%lo:53
+:::6379
+@@logins
+alice 10.0.0.9
+root 203.0.113.7
 @@kerr
 Oct 26 10:00:00 gpu-01 kernel: NVRM: Xid 79
 @@netdev
@@ -128,6 +141,34 @@ describe('inspection', () => {
     expect(parseInspection('@@kv\nhostname=x\n@@end\n').net).toBeUndefined()
   })
 
+  it('records public listeners, login sources and failed SSH logins, and flags what is new', () => {
+    expect(report.listeners).toEqual(['*:22', '*:6379', '*:8888', '10.0.0.5:9100'])
+    expect(report.loginSources).toEqual(['alice@10.0.0.9', 'root@203.0.113.7'])
+    expect(report.sshFailures1h).toBe(240)
+    const message = (code: string, history?: { at: string; diskPct: Record<string, number>; listeners?: string[]; loginSources?: string[] }[]) => evaluate(report, T, undefined, { history }).find(f => f.code === code)?.message
+    // Without earlier data the first inspection is the baseline.
+    expect(message('port-new')).toBeUndefined()
+    expect(message('port-new', [{ at: '2026-10-28T00:00:00Z', diskPct: {} }])).toBeUndefined()
+    const before = [{ at: '2026-10-28T00:00:00Z', diskPct: {}, listeners: ['*:22', '10.0.0.5:9100'], loginSources: ['alice@10.0.0.9'] }, { at: '2026-10-28T01:00:00Z', diskPct: {}, listeners: ['*:22', '*:8888'], loginSources: [] }]
+    expect(message('port-new', before)).toBe('new listening TCP ports: *:6379')
+    expect(message('login-new-source', before)).toBe('new login sources: root from 203.0.113.7')
+    expect(message('ssh-failures')).toBe('240 failed SSH logins in the last hour')
+    expect(evaluate(report, { ...T, sshFailWarnPerHour: 0 }).map(f => f.code)).not.toContain('ssh-failures')
+    expect(metricsOf(report, new Date())).toMatchObject({ listeners: report.listeners, loginSources: report.loginSources, sshFailures1h: 240 })
+    // A host without the sections records nothing, rather than an empty set that would make everything look new later.
+    expect(parseInspection('@@kv\n@@end\n')).not.toHaveProperty('listeners')
+  })
+
+  it('warns when a disk will fill within the forecast window', () => {
+    const at = new Date('2026-10-29T00:00:00Z')
+    const history = [3, 2, 1].map(d => ({ at: new Date(at.getTime() - d * 86_400_000).toISOString(), diskPct: { '/': 95 - d * 0.5, '/data': 80 } }))
+    const codes = (thresholds = T) => evaluate(report, thresholds, history.at(-1), { history, at }).filter(f => f.code === 'disk-forecast').map(f => f.message)
+    // Ten days away is outside the default seven-day window.
+    expect(codes()).toEqual([])
+    expect(codes({ ...T, diskFullForecastDays: 14 })).toEqual(['/ grows 0.5 points a day and fills in about 10 days'])
+    expect(codes({ ...T, diskFullForecastDays: 0 })).toEqual([])
+  })
+
   it('warns about a slow login and retransmits, and keeps network metrics for trends', () => {
     const slow = { ...report, loginMs: 4200 }
     const codes = evaluate(slow, T).map(f => `${f.severity}:${f.code}`)
@@ -136,6 +177,8 @@ describe('inspection', () => {
     expect(evaluate(slow, { ...T, loginWarnMs: 0, tcpRetransWarnPct: 0 }).map(f => f.code)).not.toEqual(expect.arrayContaining(['login-slow']))
     expect(evaluate(slow, { ...T, loginWarnMs: 0, tcpRetransWarnPct: 0 }).map(f => f.code)).not.toContain('tcp-retrans')
     expect(metricsOf(slow, new Date('2026-10-29T00:00:00Z'))).toMatchObject({ loginMs: 4200, rxBps: 624288, txBps: 1124, tcpEstablished: 42, tcpRetransPct: 10 })
+    // Two A100s: mean utilization, memory used across both, and the hotter one.
+    expect(metricsOf(report, new Date())).toMatchObject({ gpuUtilPct: 49, gpuMemPct: 90.9, gpuTempC: 87 })
   })
 })
 

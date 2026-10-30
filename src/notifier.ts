@@ -106,22 +106,27 @@ export async function notifyTask(config: Pick<Config, 'notifications'>, task: Ta
     if (task.notifyOnlyProblems && !problem) return { channel: channelName, status: 'skipped' as const, detail: 'no problems' }
     if (task.notifyOnChange && unchanged) return { channel: channelName, status: 'skipped' as const, detail: 'unchanged since the previous run' }
     if (quiet) return { channel: channelName, status: 'skipped' as const, detail: `quiet hours ${task.quietHours!.start}–${task.quietHours!.end}` }
-    const channel = config.notifications[channelName]
-    if (!channel) return { channel: channelName, status: 'failed' as const, detail: 'unknown channel' }
-    try {
-      const request = webhookRequest(channel, notificationSummary(task, record))
-      const timeout = AbortSignal.timeout(10_000)
-      const response = await send(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify(request.body), redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
-      if (!response.ok) { await response.body?.cancel(); throw new Error('HTTP failure') }
-      if (channel.kind !== 'webhook') {
-        const result = await responseJson(response)
-        const code = channel.kind === 'feishu' ? result.code ?? result.StatusCode : result.errcode
-        if (code !== 0) throw new Error('provider rejected message')
-      } else await response.body?.cancel()
-      return { channel: channelName, status: 'sent' as const }
-    } catch {
-      // Fetch errors and provider response bodies may contain URLs/tokens. Never persist them.
-      return { channel: channelName, status: 'failed' as const, detail: 'Delivery failed; check channel configuration, network and provider limits.' }
-    }
+    return deliver(config, channelName, notificationSummary(task, record), signal, send)
   }))
+}
+
+/** Send one Markdown message to a configured channel. Failures are reported without the endpoint or the provider's reply. */
+export async function deliver(config: Pick<Config, 'notifications'>, channelName: string, markdown: string, signal?: AbortSignal, send: typeof fetch = fetch): Promise<Delivery> {
+  const channel = config.notifications[channelName]
+  if (!channel) return { channel: channelName, status: 'failed', detail: 'unknown channel' }
+  try {
+    const request = webhookRequest(channel, markdown)
+    const timeout = AbortSignal.timeout(10_000)
+    const response = await send(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify(request.body), redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+    if (!response.ok) { await response.body?.cancel(); throw new Error('HTTP failure') }
+    if (channel.kind !== 'webhook') {
+      const result = await responseJson(response)
+      const code = channel.kind === 'feishu' ? result.code ?? result.StatusCode : result.errcode
+      if (code !== 0) throw new Error('provider rejected message')
+    } else await response.body?.cancel()
+    return { channel: channelName, status: 'sent' }
+  } catch {
+    // Fetch errors and provider response bodies may contain URLs/tokens. Never persist them.
+    return { channel: channelName, status: 'failed', detail: 'Delivery failed; check channel configuration, network and provider limits.' }
+  }
 }

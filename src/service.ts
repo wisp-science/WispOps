@@ -30,6 +30,11 @@ import { SshRunner } from './ssh.ts'
 import type { RunResult, RunStatus } from './ssh.ts'
 import { normalizeRoot } from './space-tree.ts'
 import { OpsStore } from './store.ts'
+import { STATS_ROWS } from './trends.ts'
+import { muteFor } from './mutes.ts'
+import { checkLine, describeCheck, withServiceChecks } from './service-checks.ts'
+import type { ServiceCheck } from './service-checks.ts'
+import { deniedByPattern } from './gate.ts'
 import type { Authorization } from './store.ts'
 
 export interface ExecOptions {
@@ -44,8 +49,8 @@ export interface ExecOptions {
   readonly risk: RiskLevel
   readonly authorization: Authorization
   readonly reason?: string
-  /** Exact approved plan for managed changes, instead of the generated wrapper. */
-  readonly auditCommand?: string
+  /** Exact approved plan for managed changes, instead of the generated wrapper; per host when the script is. */
+  readonly auditCommand?: string | ((host: Host) => string)
   /** Measure the login separately from the script; see `RunRequest.timeLogin`. */
   readonly timeLogin?: boolean
 }
@@ -54,7 +59,8 @@ export interface HostInspectionResult {
   readonly host: string
   readonly status: RunStatus
   readonly severity: Severity | 'ok' | 'unreachable'
-  readonly findings: Finding[]
+  /** `muted` marks a finding the owner acknowledged; it does not count toward `severity`. */
+  readonly findings: (Finding & { muted?: boolean })[]
   readonly report?: HostInspection
   readonly error?: string
   readonly durationMs: number
@@ -120,8 +126,9 @@ export class OpsService {
     return Math.min(Math.max(timeoutMs ?? this.config.limits.defaultTimeoutMs, 1000), this.config.limits.maxTimeoutMs)
   }
 
-  /** Run one script on each host, recording every attempt. */
-  async execute(hosts: readonly Host[], script: string, options: ExecOptions): Promise<RunResult[]> {
+  /** Run one script on each host (or one built per host), recording every attempt. */
+  async execute(hosts: readonly Host[], script: string | ((host: Host) => string), options: ExecOptions): Promise<RunResult[]> {
+    const scriptFor = (host: Host) => typeof script === 'string' ? script : script(host)
     const results = await this.runner.runMany(hosts, async host => {
       const sudoCredential = !options.sudo ? undefined : this.secrets.sudoCredential
         ? await this.secrets.sudoCredential(host, options.signal)
@@ -137,7 +144,7 @@ export class OpsService {
       const loginPassword = alternateAccount ? sudoPassword : host.auth === 'password' ? await this.secrets.loginPassword(host, options.signal) : undefined
       return {
         host: connectionHost,
-        script,
+        script: scriptFor(host),
         sudo: options.sudo,
         ...sudoPassword === undefined ? {} : { sudoPassword },
         ...loginPassword === undefined ? {} : { loginPassword },
@@ -148,6 +155,13 @@ export class OpsService {
       }
     })
     const at = new Date().toISOString()
+    const auditFor = (name: string) => {
+      const host = hosts.find(h => h.name === name)
+      if (typeof options.auditCommand === 'string') return options.auditCommand
+      if (options.auditCommand !== undefined && host !== undefined) return options.auditCommand(host)
+      const text = host === undefined ? (typeof script === 'string' ? script : '') : scriptFor(host)
+      return text.length > 4000 ? `${text.slice(0, 4000)}…` : text
+    }
     await Promise.all(results.map(result => this.store.audit({
       at,
       ...options.session === undefined ? {} : { session: options.session },
@@ -156,7 +170,7 @@ export class OpsService {
       risk: options.risk,
       sudo: options.sudo,
       authorization: options.authorization,
-      command: options.auditCommand ?? (script.length > 4000 ? `${script.slice(0, 4000)}…` : script),
+      command: auditFor(result.host),
       ...options.reason === undefined ? {} : { reason: options.reason },
       status: result.status,
       exitCode: result.exitCode,
@@ -167,14 +181,18 @@ export class OpsService {
 
   /** Inspect a fleet, evaluate thresholds and trends, and record history. */
   async inspect(hosts: readonly Host[], options: { sudo: boolean; signal?: AbortSignal; session?: string; authorization: Authorization; tool: string; auditCommand?: string }): Promise<FleetInspection> {
-    const results = await this.execute(hosts, INSPECT_SCRIPT, {
+    // The deny list has the last word over owner-listed checks too, so a rule added later stops a saved check.
+    const patterns = this.config.denyPatterns.map(source => new RegExp(source))
+    const allowed = (host: Host): ServiceCheck[] => (host.serviceChecks ?? []).filter(check => deniedByPattern(checkLine(check), patterns) === undefined)
+    const results = await this.execute(hosts, host => withServiceChecks(INSPECT_SCRIPT, allowed(host)), {
       sudo: options.sudo,
       timeoutMs: this.clampTimeout(this.config.ssh.connectTimeoutSec * 1000 + 45_000),
       tool: options.tool,
       risk: 'read',
       authorization: options.authorization,
       timeLogin: true,
-      ...options.auditCommand === undefined ? {} : { auditCommand: options.auditCommand },
+      // A compact audit command still names each host's service checks, which change the script.
+      ...options.auditCommand === undefined ? {} : { auditCommand: (host: Host) => `${options.auditCommand}${allowed(host).length ? ` + service checks: ${allowed(host).map(describeCheck).join(', ')}` : ''}` },
       ...options.signal === undefined ? {} : { signal: options.signal },
       ...options.session === undefined ? {} : { session: options.session },
     })
@@ -190,10 +208,17 @@ export class OpsService {
       }
       const parsed = parseInspection(result.stdout)
       const report = result.firstOutputMs === undefined ? parsed : { ...parsed, loginMs: result.firstOutputMs }
-      const previous = await this.store.lastHealthy(result.host)
-      const findings = sortFindings(evaluate(report, this.config.thresholds, previous))
+      const history = (await this.store.readHistory(result.host, STATS_ROWS)).filter(r => r.status === 'ok')
+      const host = hosts.find(h => h.name === result.host)
+      const refused = host === undefined ? [] : (host.serviceChecks ?? []).filter(check => !allowed(host).includes(check))
+      const findings = sortFindings([
+        ...evaluate(report, { ...this.config.thresholds, ...host?.thresholdOverride }, history.at(-1), { history, at: now }),
+        ...refused.map(check => ({ severity: 'warn' as const, code: 'service-check-refused', message: `service check ${describeCheck(check)} was not run: the deny list refuses it`, subject: describeCheck(check) })),
+      ])
       await this.store.appendHistory(result.host, { ...metricsOf(report, now), status: 'ok', findings })
-      return { host: result.host, status: 'ok', severity: worstSeverity(findings), findings, report, durationMs: result.durationMs }
+      // History keeps every finding; what the owner muted is marked for the reader and does not set the severity.
+      const marked: (Finding & { muted?: boolean })[] = findings.map(f => muteFor(f, host?.mutes, now.getTime()) ? { ...f, muted: true } : f)
+      return { host: result.host, status: 'ok', severity: worstSeverity(marked.filter(f => !f.muted)), findings: marked, report, durationMs: result.durationMs }
     }))
     const counts = { ok: 0, info: 0, warn: 0, crit: 0, unreachable: 0 }
     for (const host of hostResults) counts[host.severity]++

@@ -497,7 +497,7 @@ describe('auto inspection', () => {
     return { at, counts: { ok: hosts.length, info: 0, warn: 0, crit: 0, unreachable: 0 }, hosts: hosts.map(h => ({ host: h.name, status: 'ok' as const, severity: 'ok' as const, findings: [], durationMs: 5 })) }
   })
   it('is off by default and accepts only the offered intervals', async () => {
-    expect((await manager.dispatch({ action: 'overview' }) as any).auto).toEqual({ intervalMinutes: 0, running: false })
+    expect((await manager.dispatch({ action: 'overview' }) as any).auto).toEqual({ intervalMinutes: 0, running: false, notify: [] })
     for (const minutes of [7, -5, '15', undefined]) await expect(manager.dispatch({ action: 'setAutoInspect', minutes })).rejects.toThrow('间隔不正确')
     const inspect = fakeInspect()
     expect(await manager.dispatch({ action: 'setAutoInspect', minutes: 0 })).toEqual({ intervalMinutes: 0 })
@@ -544,6 +544,19 @@ describe('auto inspection', () => {
     expect(inspect).toHaveBeenCalledTimes(1)
     entered.mockRestore()
     inspect.mockRestore()
+  })
+})
+describe('unreachable servers', () => {
+  it('reports why an inspection failed and resumes paused logins from the panel', async () => {
+    await service.store.appendHistory('b', { at: '2026-10-29T08:00:00Z', status: 'auth-failed', diskPct: {}, findings: [{ severity: 'crit', code: 'unreachable', message: 'Permission denied (publickey).' }] })
+    service.runner.guard.record('b', 'b: Permission denied (publickey).')
+    const view = await manager.dispatch({ action: 'overview' }) as any
+    expect(view.hosts[1].rows[0]).toMatchObject({ state: 'unreachable', status: 'auth-failed', findings: [{ message: 'Permission denied (publickey).' }] })
+    expect(Object.keys(view.blocked)).toEqual(['b'])
+    expect(await manager.dispatch({ action: 'unblockHost', host: 'b' })).toEqual({ cleared: ['b'] })
+    expect((await manager.dispatch({ action: 'overview' }) as any).blocked).toEqual({})
+    await expect(manager.dispatch({ action: 'unblockHost', host: 'zz' })).rejects.toThrow('不存在')
+    await expect(manager.dispatch({ action: 'diagnoseHost', host: 'zz' })).rejects.toThrow('不存在')
   })
 })
 describe('real DSH Gateway', () => {

@@ -37,7 +37,7 @@ export function CredentialForm({ data, entry, target, submit, busy }: {
     void submit(value)
   }
   return <form onSubmit={save} autoComplete="off"><fieldset className="wo-form-body" disabled={busy}>
-    {target ? <p className="wo-target-note">{tr("after.saving.this.credential.will.be", { p0: target.host, p1: roleTitle(target.role) })}</p> : <p className="wo-muted">{tr("the.password.is.stored.in.the")}</p>}
+    {target && <p className="wo-target-note">{tr("after.saving.this.credential.will.be", { p0: target.host, p1: roleTitle(target.role) })}</p>}
     <div className="wo-form-grid"><label className="wo-field"><span>{tr("credential.name")}</span><input name="name" value={name} onChange={e => setName(e.target.value)} readOnly={!!entry} required maxLength={100}/></label>
     <label className="wo-field"><span>{tr("credential.username")}</span><input name="username" value={username} onChange={e => setUsername(e.target.value)} autoComplete="off"/><small>{tr("credential.username.hint")}</small></label></div>
     <div className="wo-field wo-password-field">
@@ -48,7 +48,6 @@ export function CredentialForm({ data, entry, target, submit, busy }: {
     </div>
     <label className="wo-field"><span>{tr("notes")}</span><textarea name="note" defaultValue={entry?.note} rows={2}/></label>
     <label className="wo-check"><input type="checkbox" name="agent" defaultChecked={entry?.agent ?? true}/>{tr("allow.operations.tools.and.recurring.tasks")}</label>
-    <p className="wo-muted">{tr("connections.use.the.server.s.username")}</p>
     <div className="wo-form-actions"><button className="wo-primary" disabled={busy}>{busy ? tr("encrypting.and.saving") : target ? tr("encrypt.save.and.link") : tr("encrypt.and.save")}</button></div>
   </fieldset></form>
 }
@@ -85,7 +84,6 @@ export function RoleBindingForm({ host, role, entries, submit, busy, create, tes
     {badge && <span className="wo-badge warn">{badge}</span>}
   </label>
   return <form onSubmit={e => { e.preventDefault(); void submit(ref) }}><fieldset className="wo-form-body" disabled={busy}>
-    <p className="wo-muted">{tr("pick.one.credential.from.the.vault", { p0: roleTitle(role) })}</p>
     <div className="wo-pick-list" role="radiogroup" aria-label={roleTitle(role)}>
       {option('', role === 'login' ? tr("use.ssh.keys.no.credential") : tr("passwordless.sudo.no.credential"), role === 'login' ? undefined : tr("without.a.credential.use.passwordless.sudo"))}
       {legacy && option(legacy, legacy)}

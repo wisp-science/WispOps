@@ -12,6 +12,7 @@
  * @module dsh-wisp-ops/ssh
  */
 import type { SshSpec } from './config.ts';
+import type { SshTarget } from './diagnose.ts';
 import type { Host } from './inventory.ts';
 export type RunStatus = 'ok' | 'failed' | 'unreachable' | 'auth-failed' | 'blocked' | 'sudo-required' | 'timeout' | 'cancelled';
 export interface RunResult {
@@ -103,6 +104,8 @@ export declare class SshRunner {
     constructor(spec: SshSpec, maxOutputBytes: number, dataDir: string);
     /** Resolve ssh_config aliases locally, without opening a connection or decrypting a login password. */
     loginUser(host: Host, signal?: AbortSignal): Promise<string>;
+    /** Where ssh would connect for this host after ssh_config, without connecting; falls back to the inventory fields. */
+    resolveTarget(host: Host, signal?: AbortSignal): Promise<SshTarget>;
     /** The argv for one host; the destination always follows `--`, so it cannot be parsed as an option. */
     argv(host: Host, sudo: boolean, withPassword?: boolean): string[];
     run(request: RunRequest): Promise<RunResult>;

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { tr, useLocale } from './i18n'
+import { Hint } from './hint'
 import { PanelIcon as UpdateIcon } from './panel-icon'
 import type { Api } from './contracts'
 interface UpdateStatus { current: string; latest?: string; available: boolean; state: 'unchecked' | 'no-release' | 'current' | 'available' | 'restart-required' | 'failed'; detail?: string; releaseUrl?: string }
@@ -29,7 +30,7 @@ export function UpdatePanel({ api }: { api: Api }) {
   const icon = state === 'current' ? 'check' : state === 'failed' ? 'alert' : state === 'available' ? 'download' : state === 'restart-required' ? 'refresh' : 'clock'
   const disabled = loading || busy !== null
   return <section className="wo-updates">
-    <header className="wo-updates-heading"><h2>{tr('updates.title')}</h2><p>{tr('updates.subtitle')}</p></header>
+    <header className="wo-updates-heading"><h2>{tr('updates.title')}<Hint text={<>{tr('updates.subtitle')}<br/>{tr('updates.explanation')}</>}/></h2></header>
     <div className="wo-update-card" aria-busy={loading || busy === 'updateCheck' || busy === 'updateInstall'}>
       <div className="wo-update-versions">
         <div className="wo-update-current"><span className="wo-update-brand" aria-hidden="true">W</span><div><span className="wo-update-label">{tr('updates.current')}</span><strong className="wo-update-version">{value?.status.current ?? '—'}</strong></div></div>
@@ -52,7 +53,6 @@ export function UpdatePanel({ api }: { api: Api }) {
       <div><label htmlFor={automaticId}>{tr('updates.automatic')}</label><p id={`${automaticId}-hint`}>{tr('updates.automatic.hint')}</p></div>
       <input className="wo-update-switch" id={automaticId} type="checkbox" role="switch" aria-describedby={`${automaticId}-hint`} checked={value?.automatic ?? false} disabled={disabled || !value} onChange={e => void run('updateSettings', e.target.checked)}/>
     </div>
-    <p className="wo-update-note"><UpdateIcon kind="info"/><span>{tr('updates.explanation')}</span></p>
     {state === 'failed' && <div className="wo-update-recovery"><p>{tr('updates.reinstall')}</p><a href="https://github.com/wisp-science/WispOps" target="_blank" rel="noreferrer">https://github.com/wisp-science/WispOps<UpdateIcon kind="external"/></a></div>}
     {error && <p role="alert" className="wo-alert">{error}</p>}
   </section>

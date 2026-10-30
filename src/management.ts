@@ -26,6 +26,11 @@ import { OpsSync } from './sync.ts'
 import { OpsUpdates } from './updates.ts'
 import { buildOverview, overviewLimit } from './overview.ts'
 import { AUTO_INSPECT_AUDIT, AutoInspector } from './auto-inspect.ts'
+import { diagnoseTarget } from './diagnose.ts'
+import { STATS_ROWS } from './trends.ts'
+import { checkLine, validateChecks } from './service-checks.ts'
+import { validateMutes } from './mutes.ts'
+import { validateThresholds } from './managed.ts'
 import type { UpdateHost } from './updates.ts'
 import type { SpaceSnapshot } from './collectors/space.ts'
 
@@ -73,7 +78,7 @@ export class OpsManager {
   /** Serialize writes spanning credentials, bindings, and scheduler membership; long read-only lookups and inspections bypass the queue. */
   dispatch(value: unknown): Promise<unknown> {
     const request = object(value)
-    if (request.action === 'probeHosts' || request.action === 'auditLog' || request.action === 'inspectNow' || request.action === 'spaceUsage') return this.handle(request)
+    if (request.action === 'probeHosts' || request.action === 'auditLog' || request.action === 'inspectNow' || request.action === 'spaceUsage' || request.action === 'diagnoseHost') return this.handle(request)
     const next = this.pending.then(() => this.handle(request))
     this.pending = next.catch(() => {})
     return next
@@ -119,6 +124,10 @@ export class OpsManager {
     })().finally(() => this.inspections.delete(host.name))
     this.inspections.set(host.name, run)
     return run
+  }
+  /** Run a validator and report its failure in the panel's language. */
+  private owned<T>(validate: () => T, what: string): T {
+    try { return validate() } catch (error) { throw new Error(`${what}格式不正确：${error instanceof Error ? error.message : String(error)}`) }
   }
   private async scheduleRecords(): Promise<ScheduledRecord[]> {
     return await this.scheduler()?.catalog() ?? []
@@ -359,9 +368,57 @@ export class OpsManager {
       if (!host) throw new Error('服务器不存在。')
       return this.inspectHost(host, 'wispOps:panelInspect')
     }
+    if (action === 'diagnoseHost') {
+      // Owner-only: DNS, TCP and the SSH identification line, without logging in or touching credentials.
+      const host = this.service.inventory.hosts.get(string(request, 'host'))
+      if (!host) throw new Error('服务器不存在。')
+      return diagnoseTarget(host.name, await this.service.runner.resolveTarget(host), { timeoutMs: this.service.config.ssh.connectTimeoutSec * 1000 })
+    }
+    if (action === 'unblockHost') {
+      // Owner-only, like /ops-unblock: the next connection may try to log in again.
+      const name = string(request, 'host')
+      if (!this.service.inventory.hosts.has(name)) throw new Error('服务器不存在。')
+      return { cleared: this.service.runner.guard.clear(name) }
+    }
+    if (action === 'setServiceChecks' || action === 'setThresholds') {
+      // Owner-only per-host settings; like permission overrides they apply to YAML and WispTerm hosts of the same name.
+      const name = string(request, 'host')
+      if (!this.service.inventory.hosts.has(name)) throw new Error('服务器不存在。')
+      const checks = action === 'setServiceChecks' ? this.owned(() => validateChecks(request.checks), '服务检查') : undefined
+      const thresholds = action === 'setThresholds' ? this.owned(() => validateThresholds(request.thresholds), '巡检阈值') : undefined
+      const denied = checks === undefined ? undefined : deniedScriptLine(checks.map(checkLine).join('\n'), this.denyPatterns())
+      if (denied !== undefined) throw new Error(`服务检查被部署级 deny 规则（${denied.source}）拒绝：${denied.line}`)
+      await this.update(string(request, 'revision'), state => {
+        const map = checks !== undefined ? state.checks : state.thresholds
+        const value = checks ?? thresholds!
+        if (Array.isArray(value) ? value.length === 0 : Object.keys(value).length === 0) delete map[name]
+        else Object.defineProperty(map, name, { value, enumerable: true, writable: true, configurable: true })
+      })
+      return { message: checks !== undefined ? '服务检查已保存，下一次巡检生效。' : '巡检阈值已保存，下一次巡检生效。' }
+    }
+    if (action === 'muteFinding' || action === 'unmuteFinding') {
+      // Owner-only: acknowledge a known problem on one server, for some days or until unmuted.
+      const name = string(request, 'host')
+      if (!this.service.inventory.hosts.has(name)) throw new Error('服务器不存在。')
+      const code = string(request, 'code')
+      const subject = typeof request.subject === 'string' && request.subject ? request.subject : undefined
+      const days = request.days === undefined || request.days === null ? undefined : Number(request.days)
+      if (days !== undefined && !(Number.isInteger(days) && days >= 1 && days <= 365)) throw new Error('静音天数应为 1–365。')
+      await this.update((await this.state.read()).revision, state => {
+        const kept = (Object.hasOwn(state.mutes, name) ? state.mutes[name]! : []).filter(m => !(m.code === code && m.subject === subject))
+        const next = action === 'unmuteFinding' ? kept : this.owned(() => validateMutes([...kept, { code, ...subject === undefined ? {} : { subject }, ...days === undefined ? {} : { until: new Date(Date.now() + days * 86_400_000).toISOString() } }]), '静音')
+        if (next.length === 0) delete state.mutes[name]
+        else Object.defineProperty(state.mutes, name, { value: next, enumerable: true, writable: true, configurable: true })
+      })
+      return { message: action === 'muteFinding' ? '已静音，该问题不再影响状态和告警。' : '已取消静音。' }
+    }
     if (action === 'setAutoInspect') {
       // Owner-only: the interval at which this device inspects every server read-only; 0 turns it off.
       return { intervalMinutes: await this.auto.set(request.minutes) }
+    }
+    if (action === 'setAutoNotify') {
+      // Owner-only: configured channels that receive state-change alerts from auto inspection.
+      return { notify: await this.auto.setNotify(request.channels) }
     }
     if (action === 'setPolicy') {
       // Owner-only: the panel's override wins over the host's YAML, group and default policy for the listed capabilities.
@@ -590,8 +647,9 @@ export class OpsManager {
   /** Recent inspection history for every host: read-only, bounded, no command output. */
   private async overview(request: Request) {
     const limit = overviewLimit(request.limit)
-    const hosts = await Promise.all([...this.service.inventory.hosts.values()].map(async host => ({ name: host.name, groups: host.groups, history: await this.service.store.readHistory(host.name, limit) })))
-    return { ...buildOverview(hosts, limit), auto: await this.auto.status(hosts.map(host => host.history.at(-1)?.at)) }
+    const hosts = await Promise.all([...this.service.inventory.hosts.values()].map(async host => ({ name: host.name, groups: host.groups, ...host.mutes === undefined ? {} : { mutes: host.mutes }, history: await this.service.store.readHistory(host.name, Math.max(limit, STATS_ROWS)) })))
+    const blocked = Object.fromEntries(this.service.runner.guard.list().map(b => [b.host, b.until]))
+    return { ...buildOverview(hosts, limit), auto: await this.auto.status(hosts.map(host => host.history.at(-1)?.at)), blocked }
   }
   private async snapshot() {
     const state = await this.state.read(), vault = await this.vault.list()
@@ -630,7 +688,7 @@ export class OpsManager {
     const drafts = (await this.drafts.read()).value.entries
     const templates = { revision: library.revision, drafts, entries: [...builtinTemplates(this.service.config), ...library.value.entries].map(t => ({ ...t, builtin: t.id.startsWith('builtin.'), uses: tasks.filter(task => task.template === t.id).length })) }
     const scriptLibrary = { revision: scripts.revision, drafts: (await this.scriptDrafts.read()).value.entries, entries: scripts.value.entries.map(e => ({ ...e, uses: tasks.filter(task => task.script === e.id).length })) }
-    return { revision: state.revision, vault, hosts, excludedHosts: state.value.excludedHosts, tasks, templates, scripts: scriptLibrary, notificationChannels: Object.keys(this.service.config.notifications), timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, timerAvailable: this.runner !== undefined, warnings }
+    return { revision: state.revision, vault, hosts, excludedHosts: state.value.excludedHosts, tasks, templates, scripts: scriptLibrary, notificationChannels: Object.keys(this.service.config.notifications), thresholds: this.service.config.thresholds, timeZone: this.service.config.timeZone, schedulerAvailable: this.scheduler() !== undefined, timerAvailable: this.runner !== undefined, warnings }
   }
 }
 

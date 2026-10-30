@@ -19,6 +19,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { SshSpec } from './config.ts'
+import { parseSshG } from './diagnose.ts'
+import type { SshTarget } from './diagnose.ts'
 import { expandHome } from './inventory.ts'
 import type { Host } from './inventory.ts'
 
@@ -237,6 +239,17 @@ export class SshRunner {
       if (user) return user
     } catch { /* Never expose ssh_config output or custom command diagnostics. */ }
     throw new Error('无法确定 SSH 登录用户，请在服务器配置中显式填写用户名。')
+  }
+
+  /** Where ssh would connect for this host after ssh_config, without connecting; falls back to the inventory fields. */
+  async resolveTarget(host: Host, signal?: AbortSignal): Promise<SshTarget> {
+    const fallback = { hostname: (host.ssh ?? host.name).replace(/^[^@]*@/, ''), ...host.port === undefined ? {} : { port: host.port } }
+    try {
+      const { stdout } = await execFileAsync(this.spec.binary, ['-G', ...this.argv(host, false).slice(0, -1)], { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, signal })
+      return parseSshG(stdout, fallback)
+    } catch {
+      return fallback.port === undefined ? { ...fallback, port: 22 } : { hostname: fallback.hostname, port: fallback.port }
+    }
   }
 
   /** The argv for one host; the destination always follows `--`, so it cannot be parsed as an option. */

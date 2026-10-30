@@ -5,7 +5,7 @@
 ## 功能
 
 - **主机清单**：YAML 文件（改完下一次调用即生效），支持分组、标签、`ProxyJump`、`IdentityFile`、密码登录主机；可选导入 WispTerm 的 SSH 主机。选择器：`web-01`、`@gpu`、`tag:env=prod`、`gpu-*`、`all !@prod`。
-- **巡检 `ops_inspect`**：一次往返采集负载、CPU、内存/swap、磁盘与 inode、失败的 systemd 单元、Top 进程、NVIDIA GPU 及其进程、Slurm 节点/作业状态、24h 内 OOM 与内核错误、NTP、待重启，以及网络状态（SSH 登录延迟、网卡收发速率、TCP 连接数与重传率）。按阈值给出 critical/warning，和上次巡检对比磁盘增长，结果写入历史。
+- **巡检 `ops_inspect`**：一次往返采集负载、CPU、内存/swap、磁盘与 inode、失败的 systemd 单元、Top 进程、NVIDIA GPU 及其进程、Slurm 节点/作业状态、24h 内 OOM 与内核错误、NTP、待重启，以及网络状态（SSH 登录延迟、网卡收发速率、TCP 连接数与重传率）、安全变化（新出现的对外监听端口、新的登录来源、每小时 SSH 失败登录）和面板设置的服务检查。新端口和新登录来源与最近 50 次巡检所见比较，首次巡检只作基线；SSH 失败登录只在登录用户能读到 sshd 日志时统计。按阈值给出 critical/warning，按近 7 天增速预测磁盘写满，和上次巡检对比磁盘增长，结果写入历史。
 - **磁盘诊断 `ops_disk`**（第一版验收场景）：最大目录（含相对上次诊断的增长）、最大文件和最近增长的大文件；判断文件**是否仍被进程打开**、**是否位于活动的 Slurm/PBS/LSF 作业的工作目录**；统计“已删除但仍被占用”的空间及持有进程；检查 journal、docker、apt/dnf、conda/pip、HuggingFace 缓存、轮转日志。每个文件都有结论（in-use / job-directory / rotated-log / core-dump / recently-written / review）。清理后对同一路径再跑一次，即可核对释放了多少空间。
 - **批量命令 `ops_exec`**：并发执行，相同输出自动折叠；每条命令先做风险分级（只读 / 变更 / 破坏性，外加 sudo）。
 - **近期新增文件分析 `ops_files`**：最近 N 天新增或修改的文件总量、落在哪些目录（与上次扫描对比增长）、属于谁；内置**测序与生信规则库**，能识别原始 FASTQ/BCL/POD5、SAM/BAM/CRAM、VCF/gVCF、修剪后 reads、SRA、Nextflow `work/`、Snakemake `.snakemake`、STAR 临时目录、Cell Ranger 阶段目录、分析对象、日志、缓存，给每类文件标出保留级别（原始数据 / 结果 / 可再生中间文件 / 可压缩转换 / 缓存 / 临时 / 需问责任人）。它还能识别被同目录文件取代的冗余文件：同名 SAM 已有 BAM、`sorted.bam` 已有下游的 `markdup.bam`、BAM 已有 CRAM、`.sra` 已有 FASTQ、未压缩文件已有 `.gz`。根据 `.nextflow.log` 和 `outs/` 判断流程是否已完成；仍被进程打开或位于运行中作业目录的文件一律排除。最后按可回收空间排序，生成带“先做什么检查”的清理计划。

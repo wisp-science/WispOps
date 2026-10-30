@@ -63,6 +63,8 @@ export declare class OpsManager {
      * history ops_inspect writes. Other servers inspect in parallel; a second request for this one joins the run in flight.
      */
     private inspectHost;
+    /** Run a validator and report its failure in the panel's language. */
+    private owned;
     private scheduleRecords;
     private update;
     private handle;

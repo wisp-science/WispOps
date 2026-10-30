@@ -1,4 +1,5 @@
 import { tr } from './i18n'
+import { Hint } from './hint'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Api, CheckScript, ReportMode, Snapshot, Task, TaskDraft } from './contracts'
@@ -129,9 +130,8 @@ export function TaskForm({ data, task, template, script, fixedHost, api, submit,
     <fieldset className="wo-form-body" disabled={disabled}>
       {steps.length > 1 && <ol className="wo-steps" aria-label={tr("task.steps")}>{steps.map((s, i) => <li key={s} className={i === stepIndex ? 'is-current' : i < stepIndex ? 'is-done' : ''} aria-current={i === stepIndex ? 'step' : undefined}><button type="button" disabled={i > stepIndex} onClick={() => setStepIndex(i)}><span className="wo-step-index" aria-hidden="true">{i < stepIndex ? '\u2713' : i + 1}</span><span>{stepTitles[s]}</span></button></li>)}</ol>}
       {step === 'servers' && <div className="wo-step-servers">
-        <p className="wo-section-note">{lastStep ? tr("task.step.servers.hint") : tr("task.step.servers.first.hint")}</p>
         {lastStep && <p className="wo-task-summary"><span>{tr("task.step.summary")}</span><strong>{fields.description || fields.name}</strong><code>{fields.name}</code></p>}
-        <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}</legend>
+        <fieldset className="wo-server-picks"><legend>{tr("linked.servers.selected")}{selected.length} {tr("servers.3")}<Hint text={lastStep ? tr("task.step.servers.hint") : tr("task.step.servers.first.hint")}/></legend>
           {data.hosts.map(h => <label className="wo-check" key={h.name}><input type="checkbox" checked={selected.includes(h.name)} onChange={e => changeSelection(e.target.checked ? [...selected, h.name] : selected.filter(n => n !== h.name))}/>{h.name}<small>{h.ssh}</small></label>)}
           {!data.hosts.length && <p>{tr("add.a.server.first")}</p>}
         </fieldset>

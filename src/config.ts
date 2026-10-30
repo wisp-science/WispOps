@@ -204,10 +204,14 @@ export interface ThresholdsSpec {
   zombieWarn: number
   /** Disk growth since the previous inspection that is reported, in percentage points. */
   diskGrowthWarnPts: number
+  /** A mount forecast to fill within this many days at its recent growth rate is a warning; 0 disables the check. */
+  diskFullForecastDays: number
   /** SSH login slower than this is a warning; 0 disables the check. */
   loginWarnMs: number
   /** TCP retransmit share during the inspection sample that is a warning; 0 disables the check. */
   tcpRetransWarnPct: number
+  /** Failed SSH logins in the last hour that are a warning, when the sshd journal is readable; 0 disables the check. */
+  sshFailWarnPerHour: number
 }
 
 export interface ProtectSpec {
@@ -419,8 +423,10 @@ export const Config: z<Config> = z.object({
     gpuTempWarnC: z.number().default(85),
     zombieWarn: z.natural().default(10),
     diskGrowthWarnPts: z.number().default(5),
+    diskFullForecastDays: z.number().default(7),
     loginWarnMs: z.natural().default(3000),
     tcpRetransWarnPct: z.number().default(5),
+    sshFailWarnPerHour: z.natural().default(100),
   }).default(defaultThresholds()),
   retention: z.object({
     inspectionRecords: z.natural().min(10).default(1000),
@@ -443,8 +449,10 @@ function defaultThresholds(): ThresholdsSpec {
     gpuTempWarnC: 85,
     zombieWarn: 10,
     diskGrowthWarnPts: 5,
+    diskFullForecastDays: 7,
     loginWarnMs: 3000,
     tcpRetransWarnPct: 5,
+    sshFailWarnPerHour: 100,
   }
 }
 

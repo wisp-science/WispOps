@@ -7,6 +7,7 @@
  * @module dsh-wisp-ops/collectors/inspect
  */
 import type { ThresholdsSpec } from '../config.ts';
+import type { ServiceResult } from '../service-checks.ts';
 import type { FsUsage, InodeUsage } from './sections.ts';
 export declare const INSPECT_SCRIPT: string;
 export type Severity = 'crit' | 'warn' | 'info';
@@ -14,6 +15,8 @@ export interface Finding {
     readonly severity: Severity;
     readonly code: string;
     readonly message: string;
+    /** What the finding is about when a server can have several: a mount or a checked service. */
+    readonly subject?: string;
 }
 export interface ProcessSample {
     readonly pid: number;
@@ -95,6 +98,14 @@ export interface HostInspection {
     readonly rebootRequired?: boolean;
     readonly ntpSynced?: boolean;
     readonly net?: NetworkSample;
+    /** Non-loopback TCP listeners as `address:port`, `*` for every address. */
+    readonly listeners?: string[];
+    /** Distinct `user@address` of recent logins with a pty, from wtmp. */
+    readonly loginSources?: string[];
+    /** Failed SSH logins in the last hour, when the login user may read the sshd journal. */
+    readonly sshFailures1h?: number;
+    /** Owner-listed service checks, when the host has any. */
+    readonly services?: ServiceResult[];
 }
 /** Compact metrics kept per inspection for trends. */
 export interface InspectionMetrics {
@@ -108,13 +119,26 @@ export interface InspectionMetrics {
     readonly txBps?: number;
     readonly tcpEstablished?: number;
     readonly tcpRetransPct?: number;
+    /** Mean utilization, memory used across all GPUs, and the hottest GPU. */
+    readonly gpuUtilPct?: number;
+    readonly gpuMemPct?: number;
+    readonly gpuTempC?: number;
+    readonly listeners?: readonly string[];
+    readonly loginSources?: readonly string[];
+    readonly sshFailures1h?: number;
 }
 /** Parse the inspection script's output. */
 export declare function parseInspection(output: string): HostInspection;
 /** Compact metrics for the trend history. */
 export declare function metricsOf(report: HostInspection, at: Date): InspectionMetrics;
-/** Turn an inspection into findings, comparing against the previous one when present. */
-export declare function evaluate(report: HostInspection, t: ThresholdsSpec, previous?: InspectionMetrics): Finding[];
+/**
+ * Turn an inspection into findings, comparing against the previous one when present. `history` (successful
+ * inspections, oldest first) and `at` feed the disk-full forecast.
+ */
+export declare function evaluate(report: HostInspection, t: ThresholdsSpec, previous?: InspectionMetrics, context?: {
+    history?: readonly InspectionMetrics[];
+    at?: Date;
+}): Finding[];
 /** The most severe finding level, or `ok` when there are none above info. */
 export declare function worstSeverity(findings: readonly Finding[]): Severity | 'ok';
 export declare function sortFindings(findings: readonly Finding[]): Finding[];

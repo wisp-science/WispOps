@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { tr } from './i18n'
+import { Hint } from './hint'
 import type { Api, SpaceScan } from './contracts'
 import { buildSpaceTree, findSpaceNode, normalizeRoot } from '../src/space-tree'
 import type { SpaceNode } from '../src/space-tree'
@@ -159,11 +160,11 @@ export function SpaceMap({ api, hosts, paths = [] }: { api: Api; hosts: string[]
       <div className="wo-space-foot">
         <div className="wo-space-legend">{blocks.slice(0, 10).map(b => <span key={b.key} className={`is-${b.kind}`}><i className={`wo-space-swatch ${b.hue}`} aria-hidden="true"/>{b.label}<b>{formatKb(b.kb)}</b></span>)}</div>
         <div className="wo-space-controls">
+          <Hint text={tr('space.hint')} align="end"/>
           {fs && fs.mount === scan.path && current === tree && <label className="wo-check"><input type="checkbox" checked={showFree} onChange={e => setShowFree(e.target.checked)}/>{tr('space.show.free')}</label>}
           <div className="wo-range" role="group" aria-label={tr('space.view.mode')}><button type="button" className={view === 'map' ? 'active' : ''} aria-pressed={view === 'map'} onClick={() => setView('map')}>{tr('space.view.map')}</button><button type="button" className={view === 'list' ? 'active' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}>{tr('space.view.list')}</button></div>
         </div>
       </div>
-      <p className="wo-muted wo-space-hint">{tr('space.hint')}</p>
     </>}
   </section>
 }

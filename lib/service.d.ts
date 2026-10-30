@@ -33,8 +33,8 @@ export interface ExecOptions {
     readonly risk: RiskLevel;
     readonly authorization: Authorization;
     readonly reason?: string;
-    /** Exact approved plan for managed changes, instead of the generated wrapper. */
-    readonly auditCommand?: string;
+    /** Exact approved plan for managed changes, instead of the generated wrapper; per host when the script is. */
+    readonly auditCommand?: string | ((host: Host) => string);
     /** Measure the login separately from the script; see `RunRequest.timeLogin`. */
     readonly timeLogin?: boolean;
 }
@@ -42,7 +42,10 @@ export interface HostInspectionResult {
     readonly host: string;
     readonly status: RunStatus;
     readonly severity: Severity | 'ok' | 'unreachable';
-    readonly findings: Finding[];
+    /** `muted` marks a finding the owner acknowledged; it does not count toward `severity`. */
+    readonly findings: (Finding & {
+        muted?: boolean;
+    })[];
     readonly report?: HostInspection;
     readonly error?: string;
     readonly durationMs: number;
@@ -71,8 +74,8 @@ export declare class OpsService {
     /** Resolve a selector and enforce the fleet size limit. */
     select(selector: string): Host[];
     clampTimeout(timeoutMs: number | undefined): number;
-    /** Run one script on each host, recording every attempt. */
-    execute(hosts: readonly Host[], script: string, options: ExecOptions): Promise<RunResult[]>;
+    /** Run one script on each host (or one built per host), recording every attempt. */
+    execute(hosts: readonly Host[], script: string | ((host: Host) => string), options: ExecOptions): Promise<RunResult[]>;
     /** Inspect a fleet, evaluate thresholds and trends, and record history. */
     inspect(hosts: readonly Host[], options: {
         sudo: boolean;

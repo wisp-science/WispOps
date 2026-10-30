@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { tr } from './i18n'
+import { Hint } from './hint'
 import type { Api, SshConfigCandidate } from './contracts'
 
 /** Pick literal `Host` aliases from the owner's ssh_config; the page imports and probes the selection. */
@@ -19,7 +20,7 @@ export function SshImportForm({ api, busy, submit }: { api: Api; busy: boolean; 
   const fresh = candidates?.filter(h => !h.existing && !h.excluded) ?? []
   const toggle = (alias: string, on: boolean) => setSelected(on ? [...new Set([...selected, alias])] : selected.filter(a => a !== alias))
   return <form onSubmit={e => { e.preventDefault(); if (selected.length) void submit(selected) }}><fieldset className="wo-form-body" disabled={busy}>
-    <p className="wo-section-note">{tr('ssh.import.hint', { p0: path || '~/.ssh/config' })}</p>
+    <p className="wo-hint-line"><Hint text={tr('ssh.import.hint', { p0: path || '~/.ssh/config' })}/></p>
     {error && <p role="alert" className="wo-alert">{error}</p>}
     {candidates === undefined && !error && <div className="wo-empty">{tr('loading')}</div>}
     {candidates !== undefined && !candidates.length && <div className="wo-empty">{tr('ssh.import.empty')}</div>}

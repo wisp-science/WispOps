@@ -183,10 +183,14 @@ export interface ThresholdsSpec {
     zombieWarn: number;
     /** Disk growth since the previous inspection that is reported, in percentage points. */
     diskGrowthWarnPts: number;
+    /** A mount forecast to fill within this many days at its recent growth rate is a warning; 0 disables the check. */
+    diskFullForecastDays: number;
     /** SSH login slower than this is a warning; 0 disables the check. */
     loginWarnMs: number;
     /** TCP retransmit share during the inspection sample that is a warning; 0 disables the check. */
     tcpRetransWarnPct: number;
+    /** Failed SSH logins in the last hour that are a warning, when the sshd journal is readable; 0 disables the check. */
+    sshFailWarnPerHour: number;
 }
 export interface ProtectSpec {
     /** File-writing tools and the argument holding their path; writes to the inventory file or data directory are refused. */

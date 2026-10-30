@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildOverview, DEFAULT_OVERVIEW_ROWS, MAX_OVERVIEW_ROWS, overviewLimit, overviewRows } from '../src/overview.ts'
 import type { HistoryRecord } from '../src/store.ts'
+import { forecastFull, reachability } from '../src/trends.ts'
 
 const ok = (at: string, extra: Partial<HistoryRecord> = {}): HistoryRecord => ({ at, status: 'ok', diskPct: { '/': 40 }, memAvailPct: 60, findings: [], ...extra })
 
@@ -53,5 +54,29 @@ describe('fleet overview', () => {
     expect(view.hosts.map(h => h.latest)).toEqual(['ok', 'never', 'crit'])
     expect(view.summary).toEqual({ ok: 1, warn: 0, crit: 1, unreachable: 0, never: 1 })
     expect(view).toMatchObject({ limit: 3, generatedAt: '2026-10-27T00:00:00.000Z' })
+  })
+  it('forecasts when a growing mount fills, and not from thin or flat data', () => {
+    const day = 86_400_000, t0 = Date.parse('2026-10-20T00:00:00Z')
+    const growing = [0, 1, 2, 3].map(d => ({ at: t0 + d * day, pct: 80 + d * 2 }))
+    expect(forecastFull(growing)).toEqual({ days: 7, perDay: 2 })
+    expect(forecastFull(growing.slice(0, 2))).toBeUndefined()
+    expect(forecastFull([{ at: t0, pct: 50 }, { at: t0 + 3_600_000, pct: 60 }, { at: t0 + 7_200_000, pct: 70 }])).toBeUndefined()
+    expect(forecastFull([0, 1, 2].map(d => ({ at: t0 + d * day, pct: 70 })))).toBeUndefined()
+    // Points older than the week no longer steer the line.
+    expect(forecastFull([{ at: t0 - 30 * day, pct: 10 }, ...[0, 1, 2].map(d => ({ at: t0 + d * day, pct: 70 }))])).toBeUndefined()
+  })
+  it('reports reachability, login P95 and forecasts per host from the whole history passed in', () => {
+    const now = new Date('2026-10-29T12:00:00Z')
+    const hour = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString()
+    const history: HistoryRecord[] = [
+      ok(hour(72), { diskPct: { '/': 80 } }), ok(hour(48), { diskPct: { '/': 82 } }),
+      { at: hour(20), status: 'timeout', diskPct: {}, findings: [] },
+      ...[10, 8, 6, 4, 2].map((h, i) => ok(hour(h), { diskPct: { '/': 84 + i * 0.1 }, loginMs: 100 * (i + 1) })),
+    ]
+    const [host] = buildOverview([{ name: 'a', groups: [], history }], 2, now).hosts
+    expect(host!.rows).toHaveLength(2)
+    expect(host!.reach).toEqual({ day: 83.3, week: 87.5, loginP95: 500 })
+    expect(host!.forecast['/']).toBeGreaterThan(1)
+    expect(reachability(history, now.getTime() + 1)).toEqual({})
   })
 })

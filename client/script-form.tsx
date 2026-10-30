@@ -46,7 +46,6 @@ export function ScriptForm({ script, draft, hosts, api, busy, submit }: { script
   }
   const verdictTone = (verdict: string) => verdict === 'ok' ? 'good' : verdict === 'warn' ? 'warn' : verdict === 'crit' ? 'crit' : ''
   return <form ref={form} onSubmit={save}><fieldset className="wo-form-body" disabled={busy || testing}>
-    <p className="wo-section-note">{tr("script.form.note")}</p>
     <div className="wo-form-grid"><Field title={tr("script.id")} hint={tr("script.id.hint")}><input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" maxLength={80} defaultValue={script?.id} readOnly={!!script && !draft}/></Field><Field title={tr("script.title")}><input name="title" required maxLength={120} defaultValue={script?.title}/></Field></div>
     <Field title={tr("short.description")} hint={tr("script.description.hint")}><input name="description" maxLength={1000} defaultValue={script?.description}/></Field>
     <Field title={tr("script.content")} hint={tr("script.contract.hint")}><textarea name="content" className="wo-mono wo-script-editor" required rows={12} spellCheck={false} defaultValue={script?.content ?? SAMPLE}/></Field>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { tr, useLocale } from './i18n'
+import { Hint } from './hint'
 import type { Api, AuditLog, Host } from './contracts'
 
 const WINDOWS: [number, () => string][] = [[24, () => tr('audit.window.day')], [24 * 7, () => tr('audit.window.week')], [24 * 30, () => tr('audit.window.month')], [24 * 365, () => tr('audit.window.year')]]
@@ -24,7 +25,7 @@ export function AuditPanel({ api, hosts, host, onHost }: { api: Api; hosts: Host
   }, [api, host, hours, limit])
   const rows = [...(data?.rows ?? [])].reverse()
   return <section className="wo-audit" aria-busy={loading}>
-    <header className="wo-updates-heading"><h2>{tr('audit.log')}</h2><p>{tr('audit.subtitle')}</p></header>
+    <header className="wo-updates-heading"><h2>{tr('audit.log')}<Hint text={<>{tr('audit.subtitle')}{data && <><br/>{data.retentionMonths > 0 ? tr('audit.retention', { p0: data.retentionMonths }) : tr('audit.retention.unlimited')}</>}</>}/></h2></header>
     <div className="wo-audit-controls">
       <label>{tr('audit.host')}<select value={host} onChange={e => onHost(e.target.value)}><option value="">{tr('audit.all.servers')}</option>{hosts.map(h => <option key={h.name} value={h.name}>{h.name}</option>)}</select></label>
       <label>{tr('audit.window')}<select value={hours} onChange={e => setHours(Number(e.target.value))}>{WINDOWS.map(([value, label]) => <option key={value} value={value}>{label()}</option>)}</select></label>
@@ -43,6 +44,5 @@ export function AuditPanel({ api, hosts, host, onHost }: { api: Api; hosts: Host
         <td className="wo-audit-command wo-mono">{row.command}{row.reason && <small>{tr('audit.reason', { p0: row.reason })}</small>}</td>
       </tr>)}</tbody>
     </table></div>}
-    <p className="wo-muted">{data === undefined ? '' : data.retentionMonths > 0 ? tr('audit.retention', { p0: data.retentionMonths }) : tr('audit.retention.unlimited')}</p>
   </section>
 }

@@ -30,3 +30,5 @@ export interface NotifyContext {
 }
 /** Opt-in delivery after durable task recording. Failures never discard the inspection. */
 export declare function notifyTask(config: Pick<Config, 'notifications'>, task: TaskSpec, record: TaskRunRecord, signal?: AbortSignal, send?: typeof fetch, context?: NotifyContext): Promise<Delivery[]>;
+/** Send one Markdown message to a configured channel. Failures are reported without the endpoint or the provider's reply. */
+export declare function deliver(config: Pick<Config, 'notifications'>, channelName: string, markdown: string, signal?: AbortSignal, send?: typeof fetch): Promise<Delivery>;

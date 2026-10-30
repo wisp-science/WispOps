@@ -9,7 +9,12 @@ export interface Host {
   auth?: 'key' | 'password'; loginSecret?: string; sudoSecret?: string;
   credentials: { login: CredentialRef | null; sudo: CredentialRef | null }; tasks: string[];
   policy: Record<string, string>; inheritedPolicy: Record<string, string>; policyOverride?: Record<string, string>; probe: HostProbe | null;
+  /** Panel-set service checks, threshold overrides and muted findings. */
+  serviceChecks?: ServiceCheck[]; thresholdOverride?: Record<string, number>; mutes?: Mute[];
 }
+/** Mirrors src/service-checks.ts and src/mutes.ts. */
+export type ServiceCheck = { kind: 'unit'; name: string } | { kind: 'port'; port: number } | { kind: 'http'; url: string }
+export interface Mute { code: string; subject?: string; until?: string }
 export interface QuietHours { start: string; end: string; timeZone?: string }
 export interface Task {
   notify?: string[]; notifyOnlyProblems?: boolean; notifyOnChange?: boolean; quietHours?: QuietHours;
@@ -44,6 +49,8 @@ export interface Snapshot {
   revision: string; vault: { revision: string; entries: Credential[] }; hosts: Host[]; excludedHosts: string[]; tasks: Task[];
   templates: { revision: string; entries: (import('../src/task-template-content').TaskTemplate & { builtin: boolean; uses: number })[]; drafts: TemplateDraft[] };
   timeZone: string; schedulerAvailable: boolean; warnings: string[];
+  /** Configured inspection thresholds, shown as the defaults a server can override. */
+  thresholds?: Record<string, number>;
 }
 /** A template the agent submitted with ops_template_draft, waiting for the owner to review and save. */
 export interface TemplateDraft { id: string; createdAt: string; template: import('../src/task-template-content').TaskTemplate }
@@ -54,14 +61,33 @@ export interface PageProps { api: Api; sidebar?: boolean; defaultSessionId?: str
 export type OverviewState = 'ok' | 'warn' | 'crit' | 'unreachable'
 export interface OverviewRow {
   at: string; state: OverviewState; diskPct: Record<string, number>; memAvailPct?: number; load1?: number; cpuPct?: number;
+  /** Runner status of an unreachable inspection, e.g. `timeout`, `auth-failed`, `blocked`. */
+  status?: string;
   /** Network: SSH login time, bytes per second over the sample, established TCP connections and retransmit share. */
   loginMs?: number; rxBps?: number; txBps?: number; tcpEstablished?: number; tcpRetransPct?: number;
-  findings: { severity: 'warn' | 'crit'; code: string; message: string }[]
+  /** Mean GPU utilization, memory used across GPUs, and the hottest GPU in °C. */
+  gpuUtilPct?: number; gpuMemPct?: number; gpuTempC?: number;
+  /** Failed SSH logins in the hour before the inspection, when the sshd journal was readable. */
+  sshFailures1h?: number;
+  /** `subject` names the mount or service; `mute` is the owner's mute covering the finding. */
+  findings: { severity: 'warn' | 'crit'; code: string; message: string; subject?: string; mute?: Mute }[]
 }
-export interface OverviewHost { name: string; groups: string[]; rows: OverviewRow[]; latest: OverviewState | 'never' }
+export interface OverviewHost {
+  name: string; groups: string[]; rows: OverviewRow[]; latest: OverviewState | 'never';
+  /** Days until each growing mount fills at its recent rate. */
+  forecast: Record<string, number>;
+  /** Reachable share of inspections over the last day and week, and the day's 95th-percentile login time. */
+  reach: { day?: number; week?: number; loginP95?: number }
+}
 /** Mirrors src/auto-inspect.ts AutoInspectStatus; 0 minutes is off. */
-export interface AutoInspect { intervalMinutes: number; running: boolean; nextAt?: string }
-export interface Overview { generatedAt: string; limit: number; hosts: OverviewHost[]; summary: Record<OverviewState | 'never', number>; auto: AutoInspect }
+export interface AutoInspect { intervalMinutes: number; running: boolean; nextAt?: string; notify: string[]; lastAlert?: { at: string; failed: string[] } }
+export interface Overview {
+  generatedAt: string; limit: number; hosts: OverviewHost[]; summary: Record<OverviewState | 'never', number>; auto: AutoInspect;
+  /** Servers whose logins are paused after an authentication failure, with the time the pause ends. */
+  blocked: Record<string, string>
+}
+/** Mirrors src/diagnose.ts Diagnosis. */
+export interface Diagnosis { host: string; target: string; port: number; via?: 'proxy-jump' | 'proxy-command'; steps: { step: 'dns' | 'tcp' | 'banner'; ok: boolean; ms?: number; detail: string }[]; verdict: 'ok' | 'dns' | 'tcp' | 'banner' | 'proxy-command' }
 /** One audit entry as the `auditLog` action returns it (mirrors src/store.ts AuditEntry, command truncated). */
 export interface AuditRow { at: string; session?: string; tool: string; host: string; risk: string; sudo: boolean; authorization: string; command: string; reason?: string; status: string; exitCode: number | null; durationMs: number }
 export interface AuditLog { rows: AuditRow[]; limit: number; sinceHours: number; retentionMonths: number }

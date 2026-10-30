@@ -38,6 +38,10 @@
 | `thresholds.*` | 见源码 | 巡检阈值 |
 | `thresholds.loginWarnMs` | 3000 | SSH 登录超过此毫秒数时给出 `login-slow` 警告；0 关闭 |
 | `thresholds.tcpRetransWarnPct` | 5 | 巡检采样内 TCP 重传率达到此百分比时给出 `tcp-retrans` 警告；0 关闭 |
+| `thresholds.diskFullForecastDays` | 7 | 按近 7 天增速预计在此天数内写满的挂载点给出 `disk-forecast` 警告；0 关闭 |
+| `thresholds.sshFailWarnPerHour` | 100 | 登录用户能读到 sshd 日志时，最近一小时 SSH 失败登录达到此数给出 `ssh-failures` 警告；0 关闭 |
+
+以上阈值都可以在面板的服务器详情中按服务器覆盖。
 | `retention.inspectionRecords` | 1000 | 每台服务器保留的巡检记录条数，写入新记录时裁剪最旧的 |
 | `retention.auditMonths` | 12 | 保留的审计月份数（含当月），超出的 `audit/YYYY-MM.jsonl` 在写入时自动删除；0 为永久保留。旧的单文件 `audit.jsonl` 不受影响 |
 | `dataDir` | `~/.dsh-wisp-ops` | 审计日志、巡检历史、磁盘快照、探测结果、面板数据及独立密码库 |
